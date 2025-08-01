@@ -19,10 +19,8 @@ const oauthClient = new OAuthClient({
 
 // Debug helper function
 function debugLog(message, ...args) {
-  if (DEBUG) {
-    console.log(`[DEBUG QB Service] ${message}`, ...args);
-    logMessage("DEBUG", message, ...args);
-  }
+  console.log(`[DEBUG QB Service] ${message}`, ...args);
+  logMessage("DEBUG", message, ...args);
 }
 
 function getAuthUri(userId) {
