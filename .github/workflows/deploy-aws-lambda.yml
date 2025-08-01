@@ -26,11 +26,11 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-        working-directory: hubspot-quickbooks-backend/src
+        working-directory: src
 
       - name: Package Lambda
         run: npm run package-lambda
-        working-directory: hubspot-quickbooks-backend/src
+        working-directory: src
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -43,7 +43,7 @@ jobs:
         run: >
           aws cloudformation deploy \
             --stack-name lambda-deployment-bucket \
-            --template-file hubspot-quickbooks-backend/src/bucket-only.yaml \
+            --template-file src/bucket-only.yaml \
             --capabilities CAPABILITY_NAMED_IAM
 
       - name: Get bucket name output
@@ -53,13 +53,13 @@ jobs:
           echo "bucket_name=$BUCKET" >> $GITHUB_OUTPUT
 
       - name: Upload Lambda zip to S3
-        run: aws s3 cp hubspot-quickbooks-backend/src/hubspot-quickbooks-backend.zip s3://${{ steps.get_bucket.outputs.bucket_name }}/hubspot-quickbooks-backend.zip
+        run: aws s3 cp src/hubspot-quickbooks-backend.zip s3://${{ steps.get_bucket.outputs.bucket_name }}/hubspot-quickbooks-backend.zip
 
       - name: Deploy CloudFormation stack (main)
         run: >
           aws cloudformation deploy \
             --stack-name hubspot-quickbooks-backend \
-            --template-file hubspot-quickbooks-backend/src/cloudformation.yaml \
+            --template-file src/cloudformation.yaml \
             --capabilities CAPABILITY_NAMED_IAM \
             --parameter-overrides LambdaS3Key=hubspot-quickbooks-backend.zip LambdaDeploymentBucket=${{ steps.get_bucket.outputs.bucket_name }}
 
