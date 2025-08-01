@@ -3,12 +3,6 @@ name: Deploy to AWS CloudFormation
 on:
   workflow_dispatch:
     inputs:
-      AWS_ACCESS_KEY_ID:
-        description: "AWS Access Key ID (if not using secret)"
-        required: false
-      AWS_SECRET_ACCESS_KEY:
-        description: "AWS Secret Access Key (if not using secret)"
-        required: false
       AWS_REGION:
         description: "AWS Region (default: us-east-1)"
         required: false
@@ -18,8 +12,8 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID || inputs.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY || inputs.AWS_SECRET_ACCESS_KEY }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_REGION: ${{ secrets.AWS_REGION || inputs.AWS_REGION }}
     steps:
       - name: Checkout code
