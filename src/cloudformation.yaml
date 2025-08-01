@@ -1,0 +1,370 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Deploy Node.js QuickBooks-HubSpot backend to Lambda with MongoDB DocumentDB
+
+Parameters:
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: CIDR block for the VPC
+  PrivateSubnet1Cidr:
+    Type: String
+    Default: 10.0.1.0/24
+    Description: CIDR block for private subnet 1
+  PrivateSubnet2Cidr:
+    Type: String
+    Default: 10.0.2.0/24
+    Description: CIDR block for private subnet 2
+  LambdaDeploymentBucket:
+    Type: String
+    Description: S3 key for the Lambda deployment package
+  LambdaS3Key:
+    Type: String
+    Default: hubspot-quickbooks-backend.zip
+    Description: S3 key for the Lambda deployment package
+  DocDBMasterUsername:
+    Type: String
+    Default: hubspot_quickbooks_user
+    Description: Master username for DocumentDB
+  DocDBInstanceClass:
+    Type: String
+    Default: db.t3.medium
+    Description: DocumentDB instance class
+  DocDBClusterIdentifier:
+    Type: String
+    Default: quickbooks-hubspot-cluster
+    Description: DocumentDB cluster identifier
+  DocDBOptions:
+    Type: String
+    Default: tls=true&retryWrites=false&authMechanism=SCRAM-SHA-1
+    Description: Connection options for DocumentDB
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: QuickBooksHubSpotVPC
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet1Cidr
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: QuickBooksHubSpotPrivateSubnet1
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet2Cidr
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: QuickBooksHubSpotPrivateSubnet2
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.10.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: QuickBooksHubSpotPublicSubnet1
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  NatEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+  HubspotQuickbookApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/HubspotQuickbookApiLambda
+      RetentionInDays: 14
+
+  HubspotQuickbookApiLogGroupHttpRequest:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /quickbooks-hubspot/http-requests
+      RetentionInDays: 14
+
+  HubspotQuickbookApiLogGroupHttpRequestPolicy:
+    Type: AWS::Logs::ResourcePolicy
+    Properties:
+      PolicyName: ApiGatewayHttpRequestLogGroupPolicy
+      PolicyDocument: !Sub |
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": { "Service": "apigateway.amazonaws.com" },
+              "Action": [
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+              ],
+              "Resource": "${HubspotQuickbookApiLogGroupHttpRequest.Arn}"
+            }
+          ]
+        }
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+        - arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess
+      Policies:
+        - PolicyName: LambdaVPCAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DeleteNetworkInterface
+                  - ec2:AssignPrivateIpAddresses
+                  - ec2:UnassignPrivateIpAddresses
+                Resource: "*"
+
+  HubspotQuickbookApiLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+        - arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess
+      Policies:
+        - PolicyName: LambdaSecretsAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                Resource: "*"
+
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Lambda access to DocumentDB
+      VpcId: !Ref VPC
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  DocDBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow DocumentDB access from Lambda
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 27017
+          ToPort: 27017
+          SourceSecurityGroupId: !Ref LambdaSecurityGroup
+
+  DocDBSubnetGroup:
+    Type: AWS::DocDB::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnets for DocumentDB
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+
+  DocDBCluster:
+    Type: AWS::DocDB::DBCluster
+    Properties:
+      MasterUsername: !Ref DocDBMasterUsername
+      MasterUserPassword: !Sub "{{resolve:secretsmanager:docdb/master/password:SecretString:password}}"
+      DBClusterIdentifier: !Ref DocDBClusterIdentifier
+      BackupRetentionPeriod: 7
+      PreferredBackupWindow: 07:00-09:00
+      VpcSecurityGroupIds:
+        - !Ref DocDBSecurityGroup
+      DBSubnetGroupName: !Ref DocDBSubnetGroup
+      EngineVersion: 5.0
+      EnableCloudwatchLogsExports:
+        - audit
+        - profiler
+
+  DocDBInstance:
+    Type: AWS::DocDB::DBInstance
+    Properties:
+      DBClusterIdentifier: !Ref DocDBCluster
+      DBInstanceClass: !Ref DocDBInstanceClass
+
+  HubspotQuickbookApiLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: HubspotQuickbookApiLambda
+      Handler: lambda.handler
+      Role: !GetAtt HubspotQuickbookApiLambdaRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaDeploymentBucket
+        S3Key: !Ref LambdaS3Key
+      Runtime: nodejs22.x
+      MemorySize: 512
+      Timeout: 60
+      Environment:
+        Variables:
+          DOCDB_USERNAME: !Ref DocDBMasterUsername
+          DOCDB_ENDPOINT: !GetAtt DocDBCluster.Endpoint
+          DOCDB_DBNAME: !Ref DocDBClusterIdentifier
+          DOCDB_OPTIONS: !Ref DocDBOptions
+          DOCDB_PASSWORD_SECRET_NAME: docdb/master/password
+          # DOCDB_PASSWORD_SECRET_ARN: !Sub "{{resolve:secretsmanager:docdb/master/password:SecretId}}"
+          QUICKBOOKS_CLIENT_ID: your-client-id
+          QUICKBOOKS_CLIENT_SECRET: your-client-secret
+          QUICKBOOKS_ENVIRONMENT: your-env
+          QUICKBOOKS_REDIRECT_URI: your-redirect-uri
+          HUBSPOT_API_KEY: your-hubspot-key
+          API_KEY: your-api-key
+          # Add other env vars as needed
+      VpcConfig:
+        SubnetIds:
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+
+  LambdaApiInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref HubspotQuickbookApiLambda
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HubspotQuickbookApiGateway}/*/*/*"
+
+  HubspotQuickbookApiGateway:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: HubspotQuickbookApi
+      ProtocolType: HTTP
+
+  HubspotQuickbookApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HubspotQuickbookApiGateway
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt HubspotQuickbookApiLambda.Arn
+      PayloadFormatVersion: "2.0"
+
+  HubspotQuickbookApiRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HubspotQuickbookApiGateway
+      RouteKey: "ANY /{proxy+}"
+      Target: !Join ["/", ["integrations", !Ref HubspotQuickbookApiIntegration]]
+
+  HubspotQuickbookApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HubspotQuickbookApiGateway
+      StageName: prod
+      AutoDeploy: true
+      AccessLogSettings:
+        DestinationArn: !GetAtt HubspotQuickbookApiLogGroupHttpRequest.Arn
+        Format: '{"requestId":"$context.requestId","ip":"$context.identity.sourceIp","requestTime":"$context.requestTime","httpMethod":"$context.httpMethod","routeKey":"$context.routeKey","status":"$context.status","protocol":"$context.protocol","responseLength":"$context.responseLength","integrationErrorMessage":"$context.integrationErrorMessage"}'
+      DefaultRouteSettings:
+        DetailedMetricsEnabled: true
+
+Outputs:
+  ApiEndpoint:
+    Description: "API Gateway endpoint"
+    Value: !Sub "https://${HubspotQuickbookApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod/"
+  LambdaFunctionArn:
+    Description: ARN of the Lambda function
+    Value: !GetAtt HubspotQuickbookApiLambda.Arn

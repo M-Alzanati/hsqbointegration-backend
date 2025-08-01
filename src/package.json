@@ -1,0 +1,53 @@
+{
+  "name": "hubspot-quickbooks-backend",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "nodemon server.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prepare": "husky",
+    "lint": "eslint . --ext .js,.ts,.vue --max-warnings=0",
+    "format:check": "prettier . --check",
+    "pre-commit": "npm run lint && npm run format:check",
+    "package-lambda": "zip -r ../hubspot-quickbooks-backend.zip * && cp ../hubspot-quickbooks-backend.zip ./hubspot-quickbooks-backend.zip && rm -r ../hubspot-quickbooks-backend.zip",
+    "upload-lambda-zip": "aws s3 cp ./hubspot-quickbooks-backend.zip s3://hubspot-quickbook-deployment/hubspot-quickbooks-backend.zip",
+    "update-lambda-code": "aws lambda update-function-code --function-name HubspotQuickbookApiLambda --s3-bucket hubspot-quickbook-deployment --s3-key hubspot-quickbooks-backend.zip",
+    "deploy-lambda-code": "npm run package-lambda && npm run upload-lambda-zip && npm run update-lambda-code",
+    "deploy-cloudformation": "aws cloudformation deploy --stack-name hubspot-quickbooks-backend --template-file cloudformation.yaml --capabilities CAPABILITY_NAMED_IAM --parameter-overrides LambdaS3Bucket=hubspot-quickbook-deployment LambdaS3Key=hubspot-quickbooks-backend.zip DocDBMasterUserPassword=N8f!Qw7z#Lp2Vx6T"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@hubspot/api-client": "^13.0.0",
+    "@vendia/serverless-express": "^4.12.6",
+    "aws-sdk": "^2.1692.0",
+    "axios": "^1.10.0",
+    "dotenv": "^17.2.0",
+    "express": "^5.1.0",
+    "intuit-oauth": "^4.2.0",
+    "mongodb": "^6.17.0",
+    "node-quickbooks": "^2.0.46",
+    "querystring": "^0.2.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.31.0",
+    "eslint": "^9.31.0",
+    "eslint-config-prettier": "^10.0.1",
+    "globals": "^16.3.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.1.2",
+    "nodemon": "^3.1.10",
+    "prettier": "3.5.0"
+  },
+  "lint-staged": {
+    "*.js": "eslint --fix"
+  },
+  "contributors": [
+    {
+      "name": "Mohamed Hosny",
+      "email": "mohamed.h.alzanaty@gmail.com"
+    }
+  ]
+}

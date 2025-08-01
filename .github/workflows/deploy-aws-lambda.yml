@@ -1,0 +1,77 @@
+name: Deploy to AWS CloudFormation
+
+on:
+  workflow_dispatch:
+    inputs:
+      AWS_ACCESS_KEY_ID:
+        description: "AWS Access Key ID (if not using secret)"
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        description: "AWS Secret Access Key (if not using secret)"
+        required: false
+      AWS_REGION:
+        description: "AWS Region (default: us-east-1)"
+        required: false
+        default: "us-east-1"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID || inputs.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY || inputs.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ secrets.AWS_REGION || inputs.AWS_REGION }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: hubspot-quickbooks-backend/src
+
+      - name: Package Lambda
+        run: npm run package-lambda
+        working-directory: hubspot-quickbooks-backend/src
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy S3 bucket (bucket-only stack)
+        run: >
+          aws cloudformation deploy \
+            --stack-name lambda-deployment-bucket \
+            --template-file hubspot-quickbooks-backend/src/bucket-only.yaml \
+            --capabilities CAPABILITY_NAMED_IAM
+
+      - name: Get bucket name output
+        id: get_bucket
+        run: |
+          BUCKET=$(aws cloudformation describe-stacks --stack-name lambda-deployment-bucket --query "Stacks[0].Outputs[?OutputKey=='LambdaDeploymentBucketName'].OutputValue" --output text)
+          echo "bucket_name=$BUCKET" >> $GITHUB_OUTPUT
+
+      - name: Upload Lambda zip to S3
+        run: aws s3 cp hubspot-quickbooks-backend/src/hubspot-quickbooks-backend.zip s3://${{ steps.get_bucket.outputs.bucket_name }}/hubspot-quickbooks-backend.zip
+
+      - name: Deploy CloudFormation stack (main)
+        run: >
+          aws cloudformation deploy \
+            --stack-name hubspot-quickbooks-backend \
+            --template-file hubspot-quickbooks-backend/src/cloudformation.yaml \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides LambdaS3Key=hubspot-quickbooks-backend.zip LambdaDeploymentBucket=${{ steps.get_bucket.outputs.bucket_name }}
+
+      - name: Update Lambda code
+        run: >
+          aws lambda update-function-code \
+            --function-name HubspotQuickbookApiLambda \
+            --s3-bucket ${{ steps.get_bucket.outputs.bucket_name }} \
+            --s3-key hubspot-quickbooks-backend.zip
