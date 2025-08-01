@@ -59,6 +59,8 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
 
     // Create invoice in QuickBooks
     logMessage("INFO", "Creating QuickBooks invoice for deal:", dealId);
+    deal.id = dealId;
+
     const { invoiceNumber, invoiceUrl } = await quickbooksService.createInvoice(
       realmId,
       accessToken,

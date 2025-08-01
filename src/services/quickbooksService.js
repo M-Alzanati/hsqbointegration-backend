@@ -5,15 +5,29 @@ const { QB_TOKEN_COLLECTION } = require("../models/constants");
 const { QUICKBOOKS_APP_URL } = require("../models/urls");
 const { logMessage } = require("../common/logger");
 
+// Enable debugging
+const DEBUG =
+  process.env.DEBUG === "true" || process.env.NODE_ENV === "development";
+
 const oauthClient = new OAuthClient({
   clientId: process.env.QUICKBOOKS_CLIENT_ID,
   clientSecret: process.env.QUICKBOOKS_CLIENT_SECRET,
   environment: process.env.QUICKBOOKS_ENVIRONMENT,
   redirectUri: process.env.QUICKBOOKS_REDIRECT_URI,
+  logging: DEBUG, // Enable OAuth client logging when debugging
 });
 
+// Debug helper function
+function debugLog(message, ...args) {
+  if (DEBUG) {
+    console.log(`[DEBUG QB Service] ${message}`, ...args);
+    logMessage("DEBUG", message, ...args);
+  }
+}
+
 function getAuthUri(userId) {
-  return oauthClient.authorizeUri({
+  debugLog("Generating auth URI for user:", userId);
+  const authUri = oauthClient.authorizeUri({
     scope: [
       OAuthClient.scopes.Accounting,
       OAuthClient.scopes.Payment,
@@ -21,17 +35,30 @@ function getAuthUri(userId) {
     ],
     state: userId,
   });
+  debugLog("Generated auth URI:", authUri);
+  return authUri;
 }
 
 async function checkConnection(userId) {
   const db = getDB();
   let authUrl = getAuthUri(userId);
   logMessage("INFO", "🔄 Checking QuickBooks connection for user:", userId);
+  debugLog("Auth URL generated:", authUrl);
 
   try {
     const tokenDoc = await db
       .collection(QB_TOKEN_COLLECTION)
       .findOne({ userId });
+
+    debugLog("Token document found:", tokenDoc ? "Yes" : "No");
+    if (tokenDoc) {
+      debugLog("Token details:", {
+        hasAccessToken: !!tokenDoc.access_token,
+        hasRefreshToken: !!tokenDoc.refresh_token,
+        createdAt: tokenDoc.createdAt,
+        expiresIn: tokenDoc.expires_in,
+      });
+    }
 
     if (!tokenDoc) {
       logMessage("INFO", "🔄 No token found for user:", userId);
@@ -46,9 +73,17 @@ async function checkConnection(userId) {
         Number(tokenDoc.expires_in) * 1000;
     }
 
+    debugLog("Token expiration check:", {
+      now: new Date(now).toISOString(),
+      expiresAt: expiresAt ? new Date(expiresAt).toISOString() : "N/A",
+      isExpired: expiresAt && now > expiresAt,
+    });
+
     if (expiresAt && now > expiresAt) {
       logMessage("INFO", "🔄 Token expired for user:", userId);
+      debugLog("Attempting to refresh token for user:", userId);
       const refreshResult = await module.exports.handleRefreshToken(userId);
+      debugLog("Refresh result:", refreshResult);
       if (!refreshResult.success) {
         logMessage("ERROR", "❌ Failed to refresh token for user:", userId);
         return { connected: false, authUrl };
@@ -59,6 +94,7 @@ async function checkConnection(userId) {
     return { connected: true, authUrl };
   } catch (error) {
     logMessage("ERROR", "❌ checkConnection error:", error);
+    debugLog("checkConnection error details:", error);
     return { connected: false, authUrl };
   }
 }
@@ -72,10 +108,17 @@ async function handleCallback(parseRedirectUrl, code, state) {
       state
     );
     logMessage("INFO", "🔄 Redirect URL:", parseRedirectUrl);
+    debugLog("OAuth callback parameters:", { code, state, parseRedirectUrl });
 
     await oauthClient.createToken(parseRedirectUrl);
+    debugLog("OAuth client after createToken:", {
+      hasToken: !!oauthClient.token,
+      tokenKeys: oauthClient.token ? Object.keys(oauthClient.token) : [],
+    });
+
     if (!oauthClient.token) {
       logMessage("ERROR", "❌ OAuth token is null or undefined");
+      debugLog("createToken failed - no token created");
       return { success: false, error: "Failed to create OAuth token" };
     }
 
@@ -149,7 +192,6 @@ async function handleCallback(parseRedirectUrl, code, state) {
     return { success: false, error: "Failed to connect to QuickBooks" };
   }
 }
-
 async function handleRefreshToken(userId) {
   const db = getDB();
   try {
@@ -205,6 +247,13 @@ async function getOrCreateCustomer(
   contact,
   refreshToken
 ) {
+  debugLog("Creating QuickBooks instance for customer lookup/creation", {
+    realmId,
+    hasAccessToken: !!accessToken,
+    hasRefreshToken: !!refreshToken,
+    contactEmail: contact.email,
+  });
+
   const qbo = new QuickBooks(
     process.env.QUICKBOOKS_CLIENT_ID,
     process.env.QUICKBOOKS_CLIENT_SECRET,
@@ -308,6 +357,15 @@ async function createInvoice(
   customerId,
   deal
 ) {
+  debugLog("Creating QuickBooks instance for invoice creation", {
+    realmId,
+    hasAccessToken: !!accessToken,
+    hasRefreshToken: !!refreshToken,
+    customerId,
+    dealId: deal.id,
+    dealAmount: deal.amount,
+  });
+
   const qbo = new QuickBooks(
     process.env.QUICKBOOKS_CLIENT_ID,
     process.env.QUICKBOOKS_CLIENT_SECRET,
@@ -329,6 +387,7 @@ async function createInvoice(
     "and deal ID:",
     deal.id
   );
+  debugLog("Invoice creation details:", { customerId, deal });
 
   let itemId = "1";
   try {
@@ -356,7 +415,10 @@ async function createInvoice(
 
   const invoiceResponse = await new Promise((resolve, reject) => {
     qbo.createInvoice(invoiceData, (err, data) => {
-      if (err) return reject(err);
+      if (err) {
+        logMessage("ERROR", "❌ Error creating QuickBooks invoice:", err);
+        return reject(err);
+      }
       resolve(data);
     });
   });
