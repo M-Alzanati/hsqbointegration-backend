@@ -323,6 +323,7 @@ async function getOrCreateCustomer(
         resolve(data);
       });
     });
+
     customerId = createCustomerResponse.Id;
     customerDataToSave = createCustomerResponse;
   }
@@ -332,7 +333,7 @@ async function getOrCreateCustomer(
     await db
       .collection("quickbooks_hubspot_customers")
       .updateOne(
-        { Id: customerId },
+        { Id: customerId, contact_id: customerDataToSave.contact_id },
         { $set: customerDataToSave },
         { upsert: true }
       );
