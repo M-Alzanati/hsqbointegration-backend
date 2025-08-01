@@ -5,16 +5,11 @@ const { QB_TOKEN_COLLECTION } = require("../models/constants");
 const { QUICKBOOKS_APP_URL } = require("../models/urls");
 const { logMessage } = require("../common/logger");
 
-// Enable debugging
-const DEBUG =
-  process.env.DEBUG === "true" || process.env.NODE_ENV === "development";
-
 const oauthClient = new OAuthClient({
   clientId: process.env.QUICKBOOKS_CLIENT_ID,
   clientSecret: process.env.QUICKBOOKS_CLIENT_SECRET,
   environment: process.env.QUICKBOOKS_ENVIRONMENT,
   redirectUri: process.env.QUICKBOOKS_REDIRECT_URI,
-  logging: DEBUG, // Enable OAuth client logging when debugging
 });
 
 // Debug helper function
@@ -190,6 +185,7 @@ async function handleCallback(parseRedirectUrl, code, state) {
     return { success: false, error: "Failed to connect to QuickBooks" };
   }
 }
+
 async function handleRefreshToken(userId) {
   const db = getDB();
   try {

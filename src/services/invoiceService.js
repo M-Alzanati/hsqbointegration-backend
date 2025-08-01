@@ -76,7 +76,15 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
       "INFO",
       "Invoice created successfully:",
       invoiceNumber,
-      invoiceUrl
+      invoiceUrl,
+      "for deal:",
+      dealId,
+      ", customer:",
+      customerId,
+      ", contact:",
+      contactId,
+      ", user:",
+      userId
     );
 
     // Update HubSpot deal with invoice info
