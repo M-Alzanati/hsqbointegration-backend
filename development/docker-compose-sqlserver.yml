@@ -1,0 +1,18 @@
+version: '3.8'
+name: sqlserver-development
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: sqlserver
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=StrongP@ssw0rd
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+      - ../mssql-shared:/mssql-shared
+    restart: unless-stopped
+volumes:
+  sqlserver_data:
+    driver: local

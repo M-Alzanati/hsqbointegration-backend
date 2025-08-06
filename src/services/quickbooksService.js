@@ -1,9 +1,13 @@
 const OAuthClient = require("intuit-oauth");
 const QuickBooks = require("node-quickbooks");
 const { getDB } = require("../config/db");
-const { QB_TOKEN_COLLECTION } = require("../models/constants");
+const {
+  QB_TOKEN_COLLECTION,
+  QB_HUBSPOT_CUSTOMER_COLLECTION,
+} = require("../models/constants");
 const { QUICKBOOKS_APP_URL } = require("../models/urls");
 const { logMessage } = require("../common/logger");
+const { toCamelCase } = require("../common/helpers");
 
 const oauthClient = new OAuthClient({
   clientId: process.env.QUICKBOOKS_CLIENT_ID,
@@ -12,14 +16,36 @@ const oauthClient = new OAuthClient({
   redirectUri: process.env.QUICKBOOKS_REDIRECT_URI,
 });
 
-// Debug helper function
-function debugLog(message, ...args) {
-  console.log(`[DEBUG QB Service] ${message}`, ...args);
-  logMessage("DEBUG", message, ...args);
+/**
+ * Helper to create a QuickBooks instance
+ * @param {string} realmId - QuickBooks realm ID
+ * @param {string} accessToken - QuickBooks access token
+ * @param {string} [refreshToken] - QuickBooks refresh token (optional)
+ * @returns {QuickBooks} Configured QuickBooks instance
+ */
+function getQBOInstance(realmId, accessToken, refreshToken) {
+  return new QuickBooks(
+    process.env.QUICKBOOKS_CLIENT_ID,
+    process.env.QUICKBOOKS_CLIENT_SECRET,
+    accessToken,
+    false,
+    realmId,
+    process.env.QUICKBOOKS_ENVIRONMENT === "sandbox",
+    false,
+    null,
+    "2.0",
+    refreshToken
+  );
 }
 
+/**
+ * Generates the QuickBooks OAuth authorization URI for a user
+ * @param {string} userId - The user ID
+ * @returns {string} The authorization URI
+ */
 function getAuthUri(userId) {
-  debugLog("Generating auth URI for user:", userId);
+  logMessage("DEBUG", "Generating auth URI for user:", userId);
+
   const authUri = oauthClient.authorizeUri({
     scope: [
       OAuthClient.scopes.Accounting,
@@ -28,28 +54,34 @@ function getAuthUri(userId) {
     ],
     state: userId,
   });
-  debugLog("Generated auth URI:", authUri);
+
+  logMessage("DEBUG", "Generated auth URI:", authUri);
   return authUri;
 }
 
+/**
+ * Checks if a user's QuickBooks connection is valid and refreshes token if needed
+ * @param {string} userId - The user ID
+ * @returns {Promise<{connected: boolean, authUrl: string}>}
+ */
 async function checkConnection(userId) {
   const db = getDB();
   let authUrl = getAuthUri(userId);
   logMessage("INFO", "🔄 Checking QuickBooks connection for user:", userId);
-  debugLog("Auth URL generated:", authUrl);
+  logMessage("DEBUG", "Auth URL generated:", authUrl);
 
   try {
     const tokenDoc = await db
       .collection(QB_TOKEN_COLLECTION)
       .findOne({ userId });
 
-    debugLog("Token document found:", tokenDoc ? "Yes" : "No");
+    logMessage("DEBUG", "Token document found:", tokenDoc ? "Yes" : "No");
     if (tokenDoc) {
-      debugLog("Token details:", {
-        hasAccessToken: !!tokenDoc.access_token,
-        hasRefreshToken: !!tokenDoc.refresh_token,
+      logMessage("DEBUG", "Token details:", {
+        hasAccessToken: !!tokenDoc.accessToken,
+        hasRefreshToken: !!tokenDoc.refreshToken,
         createdAt: tokenDoc.createdAt,
-        expiresIn: tokenDoc.expires_in,
+        expiresIn: tokenDoc.expiresIn,
       });
     }
 
@@ -60,13 +92,13 @@ async function checkConnection(userId) {
 
     const now = Date.now();
     let expiresAt = 0;
-    if (tokenDoc.createdAt && tokenDoc.expires_in) {
+    if (tokenDoc.createdAt && tokenDoc.expiresIn) {
       expiresAt =
         new Date(tokenDoc.createdAt).getTime() +
-        Number(tokenDoc.expires_in) * 1000;
+        Number(tokenDoc.expiresIn) * 1000;
     }
 
-    debugLog("Token expiration check:", {
+    logMessage("DEBUG", "Token expiration check:", {
       now: new Date(now).toISOString(),
       expiresAt: expiresAt ? new Date(expiresAt).toISOString() : "N/A",
       isExpired: expiresAt && now > expiresAt,
@@ -74,9 +106,10 @@ async function checkConnection(userId) {
 
     if (expiresAt && now > expiresAt) {
       logMessage("INFO", "🔄 Token expired for user:", userId);
-      debugLog("Attempting to refresh token for user:", userId);
+      logMessage("DEBUG", "Attempting to refresh token for user:", userId);
       const refreshResult = await module.exports.handleRefreshToken(userId);
-      debugLog("Refresh result:", refreshResult);
+
+      logMessage("DEBUG", "Refresh result:", refreshResult);
       if (!refreshResult.success) {
         logMessage("ERROR", "❌ Failed to refresh token for user:", userId);
         return { connected: false, authUrl };
@@ -87,11 +120,18 @@ async function checkConnection(userId) {
     return { connected: true, authUrl };
   } catch (error) {
     logMessage("ERROR", "❌ checkConnection error:", error);
-    debugLog("checkConnection error details:", error);
+    logMessage("DEBUG", "checkConnection error details:", error);
     return { connected: false, authUrl };
   }
 }
 
+/**
+ * Handles the QuickBooks OAuth callback and saves the token to MongoDB
+ * @param {string} parseRedirectUrl - The redirect URL from OAuth
+ * @param {string} code - The OAuth code
+ * @param {string} state - The user ID/state
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
 async function handleCallback(parseRedirectUrl, code, state) {
   const db = getDB();
   try {
@@ -101,17 +141,21 @@ async function handleCallback(parseRedirectUrl, code, state) {
       state
     );
     logMessage("INFO", "🔄 Redirect URL:", parseRedirectUrl);
-    debugLog("OAuth callback parameters:", { code, state, parseRedirectUrl });
+    logMessage("DEBUG", "OAuth callback parameters:", {
+      code,
+      state,
+      parseRedirectUrl,
+    });
 
     await oauthClient.createToken(parseRedirectUrl);
-    debugLog("OAuth client after createToken:", {
+    logMessage("DEBUG", "OAuth client after createToken:", {
       hasToken: !!oauthClient.token,
       tokenKeys: oauthClient.token ? Object.keys(oauthClient.token) : [],
     });
 
     if (!oauthClient.token) {
       logMessage("ERROR", "❌ OAuth token is null or undefined");
-      debugLog("createToken failed - no token created");
+      logMessage("DEBUG", "createToken failed - no token created");
       return { success: false, error: "Failed to create OAuth token" };
     }
 
@@ -162,7 +206,7 @@ async function handleCallback(parseRedirectUrl, code, state) {
       { userId: state },
       {
         $set: {
-          ...oauthClient.token,
+          ...toCamelCase(oauthClient.token),
         },
       },
       { upsert: true }
@@ -186,10 +230,16 @@ async function handleCallback(parseRedirectUrl, code, state) {
   }
 }
 
+/**
+ * Refreshes the QuickBooks OAuth token for a user
+ * @param {string} userId - The user ID
+ * @returns {Promise<{success: boolean, status?: number, error?: string}>}
+ */
 async function handleRefreshToken(userId) {
   const db = getDB();
   try {
     logMessage("INFO", "🔄 Refreshing QuickBooks token for user:", userId);
+
     const tokenDoc = await db
       .collection(QB_TOKEN_COLLECTION)
       .findOne({ userId });
@@ -205,19 +255,17 @@ async function handleRefreshToken(userId) {
     await oauthClient.refreshUsingToken(tokenDoc.refresh_token);
     logMessage("INFO", "🔄 Refreshing token for user:", userId);
 
-    // eslint-disable-next-line no-unused-vars
     await db.collection(QB_TOKEN_COLLECTION).updateOne(
       { userId },
       {
         $set: {
           ...tokenDoc,
-          access_token: oauthClient.token.access_token,
-          refresh_token: oauthClient.token.refresh_token,
-          expires_in: oauthClient.token.expires_in,
-          x_refresh_token_expires_in:
-            oauthClient.token.x_refresh_token_expires_in,
+          accessToken: oauthClient.token.access_token,
+          refreshToken: oauthClient.token.refresh_token,
+          expiresIn: oauthClient.token.expires_in,
+          xRefreshTokenExpiresIn: oauthClient.token.x_refresh_token_expires_in,
           latency: oauthClient.token.latency,
-          updated_at: new Date(),
+          updatedAt: new Date(),
         },
       }
     );
@@ -235,73 +283,47 @@ async function handleRefreshToken(userId) {
   }
 }
 
+/**
+ * Finds or creates a QuickBooks customer based on HubSpot contact info
+ * @param {string} realmId - QuickBooks realm ID
+ * @param {string} accessToken - QuickBooks access token
+ * @param {Object} contact - HubSpot contact object
+ * @param {string} refreshToken - QuickBooks refresh token
+ * @returns {Promise<string>} The QuickBooks customer ID
+ */
 async function getOrCreateCustomer(
   realmId,
   accessToken,
   contact,
   refreshToken
 ) {
-  debugLog("Creating QuickBooks instance for customer lookup/creation", {
-    realmId,
-    hasAccessToken: !!accessToken,
-    hasRefreshToken: !!refreshToken,
-    contactEmail: contact.email,
-  });
-
-  const qbo = new QuickBooks(
-    process.env.QUICKBOOKS_CLIENT_ID,
-    process.env.QUICKBOOKS_CLIENT_SECRET,
-    accessToken,
-    false,
-    realmId,
-    process.env.QUICKBOOKS_ENVIRONMENT === "sandbox" ? true : false,
-    process.env.QUICKBOOKS_ENVIRONMENT === "sandbox" ? true : false,
-    null,
-    "2.0",
-    refreshToken
+  logMessage(
+    "DEBUG",
+    "Creating QuickBooks instance for customer lookup/creation",
+    {
+      realmId,
+      hasAccessToken: !!accessToken,
+      hasRefreshToken: !!refreshToken,
+      contactEmail: contact.email,
+    }
   );
+
+  const qbo = getQBOInstance(realmId, accessToken, refreshToken);
 
   const email = contact.email;
   let customerResponse;
 
   if (typeof qbo.findCustomers === "function") {
-    customerResponse = await new Promise((resolve, reject) => {
-      qbo.findCustomers(
-        [{ field: "PrimaryEmailAddr", value: email, operator: "=" }],
-        (err, data) => {
-          if (err) {
-            logMessage(
-              "ERROR",
-              "❌ Error finding customer:",
-              err?.fault?.error
-            );
-            return reject(err);
-          }
-          resolve(data);
-        }
-      );
-    });
+    customerResponse = await handleQBOFindCustomers(qbo, contact);
   } else if (typeof qbo.query === "function") {
-    const query = `SELECT * FROM Customer WHERE PrimaryEmailAddr = '${email}'`;
-    customerResponse = await new Promise((resolve, reject) => {
-      qbo.query(query, (err, data) => {
-        if (err) {
-          logMessage(
-            "ERROR",
-            "❌ Error finding customer (query):",
-            err?.fault?.error
-          );
-          return reject(err);
-        }
-        resolve(data);
-      });
-    });
+    customerResponse = await handleQBOQuery();
   } else {
     throw new Error("No supported method to find customers on qbo instance");
   }
 
   let customerId, customerDataToSave;
   const db = getDB();
+
   if (customerResponse.QueryResponse.Customer?.length > 0) {
     const customerObj = customerResponse.QueryResponse.Customer[0];
     customerId = customerObj.Id;
@@ -313,6 +335,7 @@ async function getOrCreateCustomer(
       FamilyName: contact.lastname || "Customer",
       PrimaryEmailAddr: { Address: email },
     };
+
     const createCustomerResponse = await new Promise((resolve, reject) => {
       qbo.createCustomer(customerData, (err, data) => {
         if (err) return reject(err);
@@ -324,27 +347,140 @@ async function getOrCreateCustomer(
     customerDataToSave = createCustomerResponse;
   }
 
-  // Save customer to MongoDB (upsert by Id)
+  if (!customerId) {
+    throw new Error("Failed to find or create customer in QuickBooks");
+  }
+
+  // Save customer to MongoDB (upsert by contact_id, matching unique index in db.js)
   try {
+    // Ensure contact_id is present and set in both filter and document
+    const customerDoc = toCamelCase(customerDataToSave);
+    let contactId = customerDoc.contactId || customerDoc.Id || customerId;
+    if (!contactId) {
+      // Try to get from HubSpot contact if available
+      contactId = contact.contact_id || contact.id || null;
+    }
+    if (!contactId) {
+      throw new Error("Missing contact_id for MongoDB upsert");
+    }
+    customerDoc.contactId = contactId; // Always set contactId in document
     await db
-      .collection("quickbooks_hubspot_customers")
+      .collection(QB_HUBSPOT_CUSTOMER_COLLECTION)
       .updateOne(
-        { Id: customerId, contact_id: customerDataToSave.contact_id },
-        { $set: customerDataToSave },
+        { contactId: contactId },
+        { $set: customerDoc },
         { upsert: true }
       );
-    logMessage("INFO", `✅ Saved QuickBooks customer ${customerId} to MongoDB`);
-  } catch (err) {
+    logMessage(
+      "INFO",
+      `✅ Saved QuickBooks customer ${customerId} to MongoDB (contact_id: ${contactId})`
+    );
+  } catch (e) {
     logMessage(
       "ERROR",
       `❌ Failed to save QuickBooks customer ${customerId} to MongoDB:`,
-      err.message
+      e.message
     );
+    throw e;
   }
 
   return customerId;
 }
 
+async function handleQBOQuery(qbo, contact) {
+  const query = `SELECT * FROM Customer WHERE PrimaryEmailAddr = '${contact.email}'`;
+  return new Promise((resolve, reject) => {
+    qbo.query(query, async (err, data) => {
+      if (err) {
+        const errorCode =
+          err?.Fault?.Error?.[0]?.code || err?.fault?.error?.[0]?.code;
+        if (errorCode === "3200") {
+          logMessage(
+            "WARN",
+            "QuickBooks token expired (code 3200), refreshing token..."
+          );
+
+          await module.exports.handleRefreshToken(
+            contact.userId || contact.id || ""
+          );
+
+          return reject(new Error("Token refreshed, please retry request."));
+        }
+
+        logMessage(
+          "ERROR",
+          "❌ Error finding customer (query):",
+          err?.fault?.error
+        );
+
+        return reject(err);
+      }
+      resolve(data);
+    });
+  });
+}
+
+async function handleQBOFindCustomers(qbo, contact) {
+  return new Promise((resolve, reject) => {
+    qbo.findCustomers(
+      [{ field: "PrimaryEmailAddr", value: contact.email, operator: "=" }],
+      async (err, data) => {
+        if (err) {
+          // Check for error code 3200 (token expired)
+          const errorCode =
+            err?.Fault?.Error?.[0]?.code || err?.fault?.error?.[0]?.code;
+          if (errorCode === "3200") {
+            logMessage(
+              "WARN",
+              "QuickBooks token expired (code 3200), refreshing token..."
+            );
+            await module.exports.handleRefreshToken(
+              contact.userId || contact.id || ""
+            );
+            return reject(new Error("Token refreshed, please retry request."));
+          }
+          logMessage("ERROR", "❌ Error finding customer:", err?.fault?.error);
+          return reject(err);
+        }
+        resolve(data);
+      }
+    );
+  });
+}
+
+/** * Retrieves a QuickBooks customer by email
+ * @param {string} realmId - QuickBooks realm ID
+ * @param {string} accessToken - QuickBooks access token
+ * @param {string} email - Customer email address
+ * @returns {Promise<Object>} - QuickBooks customer object
+ */
+async function getCustomerByEmail(realmId, accessToken, email) {
+  const qbo = getQBOInstance(realmId, accessToken);
+
+  const query = `SELECT * FROM Customer WHERE PrimaryEmailAddr = '${email}'`;
+  const response = await new Promise((resolve, reject) => {
+    qbo.query(query, (err, data) => {
+      if (err) return reject(err);
+      resolve(data);
+    });
+  });
+
+  if (!response.QueryResponse || !response.QueryResponse.Customer) {
+    throw new Error(`No customer found with email: ${email}`);
+  }
+
+  return response.QueryResponse.Customer[0];
+}
+
+/**
+ * Creates a QuickBooks invoice for a customer and associates it with a HubSpot deal
+ * @param {string} realmId - QuickBooks realm ID
+ * @param {string} accessToken - QuickBooks access token
+ * @param {string} refreshToken - QuickBooks refresh token
+ * @param {string} customerId - QuickBooks customer ID
+ * @param {Object} deal - HubSpot deal object (must have id and amount)
+ * @returns {Promise<{invoiceNumber: string, invoiceUrl: string}>}
+ */
 async function createInvoice(
   realmId,
   accessToken,
@@ -352,7 +488,7 @@ async function createInvoice(
   customerId,
   deal
 ) {
-  debugLog("Creating QuickBooks instance for invoice creation", {
+  logMessage("DEBUG", "Creating QuickBooks instance for invoice creation", {
     realmId,
     hasAccessToken: !!accessToken,
     hasRefreshToken: !!refreshToken,
@@ -361,18 +497,7 @@ async function createInvoice(
     dealAmount: deal.amount,
   });
 
-  const qbo = new QuickBooks(
-    process.env.QUICKBOOKS_CLIENT_ID,
-    process.env.QUICKBOOKS_CLIENT_SECRET,
-    accessToken,
-    false,
-    realmId,
-    process.env.QUICKBOOKS_ENVIRONMENT === "sandbox" ? true : false,
-    process.env.QUICKBOOKS_ENVIRONMENT === "sandbox" ? true : false,
-    null,
-    "2.0",
-    refreshToken
-  );
+  const qbo = getQBOInstance(realmId, accessToken, refreshToken);
 
   console.log(
     "Creating QuickBooks invoice for customer:",
@@ -382,7 +507,7 @@ async function createInvoice(
     "and deal ID:",
     deal.id
   );
-  debugLog("Invoice creation details:", { customerId, deal });
+  logMessage("DEBUG", "Invoice creation details:", { customerId, deal });
 
   let itemId = "1";
   try {
@@ -393,6 +518,8 @@ async function createInvoice(
       "❌ Could not fetch Item ID, using default '1'",
       e.message
     );
+
+    throw e;
   }
 
   const invoiceData = {
@@ -419,10 +546,15 @@ async function createInvoice(
   });
 
   const invoiceId = invoiceResponse.Id;
-  const invoiceUrl = `${QUICKBOOKS_APP_URL}?txnId=${invoiceId}`;
+  const invoiceUrl = `${QUICKBOOKS_APP_URL ?? "https://sandbox.qbo.intuit.com/app/invoice"}?txnId=${invoiceId}`;
   return { invoiceNumber: invoiceId, invoiceUrl };
 }
 
+/**
+ * Gets the first Item ID from QuickBooks account (used for invoice line)
+ * @param {QuickBooks} qbo - QuickBooks instance
+ * @returns {Promise<string>} The first Item ID
+ */
 async function getFirstItemId(qbo) {
   return new Promise((resolve, reject) => {
     qbo.findItems({}, (err, items) => {
@@ -444,6 +576,176 @@ async function getFirstItemId(qbo) {
   });
 }
 
+/**
+ * Retrieves all invoices for a QuickBooks customer, optionally filtered by dealId (stored in Memo field)
+ * @param {string} realmId - QuickBooks realm ID
+ * @param {string} accessToken - QuickBooks access token
+ * @param {string} refreshToken - QuickBooks refresh token
+ * @param {string} customerId - QuickBooks customer ID
+ * @param {string} [dealId] - Optional, filter invoices by dealId in Memo field
+ * @returns {Promise<Array>} Array of invoice objects
+ */
+async function getInvoicesForCustomer(
+  realmId,
+  accessToken,
+  refreshToken,
+  customerId,
+  dealId
+) {
+  // Create QuickBooks instance
+  const qbo = getQBOInstance(realmId, accessToken, refreshToken);
+
+  const query = `SELECT * FROM Invoice WHERE CustomerRef = '${customerId}'`;
+  let invoices = [];
+
+  try {
+    const response = await new Promise((resolve, reject) => {
+      qbo.query(query, (err, data) => {
+        if (err) return reject(err);
+        resolve(data);
+      });
+    });
+
+    invoices = response.QueryResponse.Invoice || [];
+    if (dealId) {
+      invoices = invoices.filter(
+        (inv) => inv.Memo && inv.Memo.includes(dealId)
+      );
+    }
+  } catch (e) {
+    logMessage("ERROR", "❌ Error fetching invoices for customer:", e);
+    throw e;
+  }
+
+  return invoices;
+}
+
+/**
+ * Verifies if a specific invoice is still valid (exists and not deleted) in QuickBooks
+ * @param {string} realmId - QuickBooks realm ID
+ * @param {string} accessToken - QuickBooks access token
+ * @param {string} refreshToken - QuickBooks refresh token
+ * @param {string} invoiceId - QuickBooks invoice ID
+ * @returns {Promise<boolean>} True if invoice is valid, false otherwise
+ */
+async function isInvoiceValidInQuickBooks(
+  realmId,
+  accessToken,
+  refreshToken,
+  invoiceId
+) {
+  const qbo = getQBOInstance(realmId, accessToken, refreshToken);
+
+  try {
+    const response = await new Promise((resolve, reject) => {
+      qbo.getInvoice(invoiceId, (err, data) => {
+        if (err) {
+          // If error is not found, consider invoice invalid
+          if (
+            err.Fault &&
+            err.Fault.Error &&
+            err.Fault.Error[0].Message &&
+            err.Fault.Error[0].Message.includes("not found")
+          ) {
+            return resolve(false);
+          }
+          return reject(err);
+        }
+        // If invoice is found and not marked as deleted
+        if (data && data.Id && (!data.Status || data.Status !== "Deleted")) {
+          return resolve(true);
+        }
+        return resolve(false);
+      });
+    });
+    return response;
+  } catch (e) {
+    logMessage("ERROR", "❌ Error verifying invoice in QuickBooks:", e);
+    return false;
+  }
+}
+
+/**
+ * Verifies a list of invoice IDs in QuickBooks using a single batch query
+ * @param {string} realmId - QuickBooks realm ID
+ * @param {string} accessToken - QuickBooks access token
+ * @param {string} refreshToken - QuickBooks refresh token
+ * @param {Array<string>} invoiceIds - Array of QuickBooks invoice IDs
+ * @returns {Promise<Object>} Object with invoiceId as key and validity boolean as value
+ */
+async function verifyInvoicesInQuickBooks(
+  realmId,
+  accessToken,
+  refreshToken,
+  invoiceIds
+) {
+  const qbo = getQBOInstance(realmId, accessToken, refreshToken);
+  if (!Array.isArray(invoiceIds) || invoiceIds.length === 0) {
+    return {};
+  }
+
+  logMessage(
+    "DEBUG",
+    "Verifying invoices in QuickBooks for realmId:",
+    realmId,
+    "with invoiceIds:",
+    invoiceIds
+  );
+
+  try {
+    let response;
+
+    if (typeof qbo.query === "function") {
+      const query = `SELECT * FROM Invoice WHERE Id IN (${invoiceIds.map((id) => `'${id}'`).join(",")})`;
+      response = await new Promise((resolve, reject) => {
+        qbo.query(query, (err, data) => {
+          if (err) {
+            const errorMsg = `QuickBooks query error: ${err?.Fault?.Error?.[0]?.Message || err?.message || JSON.stringify(err)}`;
+            return reject(new Error(errorMsg));
+          }
+          resolve(data);
+        });
+      });
+    } else if (typeof qbo.findInvoices === "function") {
+      response = await new Promise((resolve, reject) => {
+        qbo.findInvoices({}, (err, data) => {
+          if (err) {
+            const errorMsg = `QuickBooks findInvoices error: ${err?.Fault?.Error?.[0]?.Message || err?.message || JSON.stringify(err)}`;
+            return reject(new Error(errorMsg));
+          }
+          resolve(data);
+        });
+      });
+    } else {
+      throw new Error("No supported method to query invoices on qbo instance");
+    }
+
+    // Map returned invoices by ID
+    const invoices = response.QueryResponse?.Invoice || [];
+    const foundInvoices = invoices.reduce((acc, inv) => {
+      acc[inv.Id] = inv && (!inv.Status || inv.Status !== "Deleted");
+      return acc;
+    }, {});
+
+    // Build result for all requested invoiceIds
+    const result = {};
+
+    for (const id of invoiceIds) {
+      result[id] = !!foundInvoices[id];
+    }
+
+    return result;
+  } catch (e) {
+    logMessage("ERROR", "❌ Error verifying invoices in QuickBooks:", e);
+    // If error, mark all as valid since we can't determine their status
+    logMessage("DEBUG", "Returning all invoiceIds as valid due to error");
+    return invoiceIds.reduce((acc, id) => {
+      acc[id] = true;
+      return acc;
+    }, {});
+  }
+}
+
 module.exports = {
   getAuthUri,
   handleCallback,
@@ -451,4 +753,9 @@ module.exports = {
   getOrCreateCustomer,
   createInvoice,
   checkConnection,
+  getInvoicesForCustomer,
+  getCustomerByEmail,
+  getQBOInstance,
+  isInvoiceValidInQuickBooks,
+  verifyInvoicesInQuickBooks,
 };

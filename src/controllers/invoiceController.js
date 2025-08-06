@@ -24,3 +24,30 @@ exports.createInvoice = async (req, res) => {
     "Invoice created successfully"
   );
 };
+
+exports.getInvoicesForDeal = async (req, res) => {
+  const { dealId } = req.params;
+  const { userId } = req.query;
+
+  if (!dealId || !userId) {
+    return errorResponse(
+      res,
+      "Deal ID and User ID are required",
+      "Invalid request",
+      400
+    );
+  }
+
+  try {
+    const result = await invoiceService.getInvoicesForDeal(dealId, userId);
+
+    if (!result.invoices || result.invoices.length === 0) {
+      return successResponse(res, [], "No invoices found for this deal");
+    }
+
+    successResponse(res, result.invoices, "Invoices retrieved successfully");
+  } catch (error) {
+    console.error("Error retrieving invoices for deal:", error);
+    errorResponse(res, error.message, "Failed to retrieve invoices", 500);
+  }
+};

@@ -115,7 +115,7 @@ const connectDB = async () => {
             reject(new Error("Timeout"));
             socket.destroy();
           });
-          
+
           socket.on("error", (err) => {
             reject(err);
           });
@@ -288,10 +288,10 @@ const initMongo = async () => {
 
   await dbInstance
     .collection(QB_INVOICE_COLLECTION)
-    .createIndex({ invoice_id: 1 }, { unique: true });
+    .createIndex({ invoiceId: 1 }, { unique: true });
   await dbInstance
     .collection(QB_INVOICE_COLLECTION)
-    .createIndex({ created_at: 1 });
+    .createIndex({ createdAt: 1 });
   await dbInstance.collection(QB_INVOICE_COLLECTION).createIndex({ status: 1 });
 
   await dbInstance
@@ -299,11 +299,11 @@ const initMongo = async () => {
     .createIndex({ userId: 1 }, { unique: true });
   await dbInstance
     .collection(QB_TOKEN_COLLECTION)
-    .createIndex({ expires_at: 1 });
+    .createIndex({ expiresAt: 1 });
 
   await dbInstance
     .collection(QB_HUBSPOT_CUSTOMER_COLLECTION)
-    .createIndex({ contact_id: 1 }, { unique: true });
+    .createIndex({ contactId: 1 }, { unique: true });
   await dbInstance
     .collection(QB_HUBSPOT_CUSTOMER_COLLECTION)
     .createIndex({ email: 1 });

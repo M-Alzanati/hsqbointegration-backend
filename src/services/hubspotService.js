@@ -27,8 +27,8 @@ async function getHubSpotData(dealId, contactId) {
 async function updateHubSpotDeal(dealId, invoiceNumber, invoiceUrl) {
   await hubspotClient.crm.deals.basicApi.update(dealId, {
     properties: {
-      hubspot_invoice_number: invoiceNumber,
-      hubspot_invoice_url: invoiceUrl,
+      invoice_number: invoiceNumber,
+      invoice_url: invoiceUrl,
     },
   });
 }

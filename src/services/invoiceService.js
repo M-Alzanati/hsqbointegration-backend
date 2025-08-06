@@ -8,6 +8,10 @@ const {
   QB_INVOICE_COLLECTION,
 } = require("../models/constants");
 
+/** * Handle creating an invoice in QuickBooks
+ * @param {Object} params - Parameters containing userId, dealId, and contactId
+ * @returns {Promise<Object>} - Returns an object with invoice details or error
+ */
 async function handleCreateInvoice({ userId, dealId, contactId }) {
   const db = getDB();
   let accessToken, refreshToken, realmId;
@@ -22,8 +26,8 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
       return { error: "QuickBooks not connected", status: 400 };
     }
 
-    accessToken = tokenDoc.access_token;
-    refreshToken = tokenDoc.refresh_token;
+    accessToken = tokenDoc.accessToken;
+    refreshToken = tokenDoc.refreshToken;
     realmId = tokenDoc.realmId;
 
     if (!accessToken || !refreshToken || !realmId) {
@@ -72,6 +76,7 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
     if (!invoiceNumber || !invoiceUrl) {
       throw new Error("Failed to create invoice in QuickBooks");
     }
+
     logMessage(
       "INFO",
       "Invoice created successfully:",
@@ -100,8 +105,9 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
       userId,
       dealId,
       contactId,
+      customerId,
       invoiceNumber,
-      invoice_id: invoiceNumber, // for unique index
+      invoiceId: invoiceNumber, // for unique index
       invoiceUrl,
       createdAt: new Date(),
     };
@@ -125,6 +131,117 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
   }
 }
 
+/** * Fetch invoices for a specific customer
+ * @param {Object} params - Parameters containing userId and customerId
+ * @returns {Promise<Object>} - Returns an object with invoices or error
+ */
+async function getInvoicesForDeal(dealId, userId) {
+  const db = getDB();
+  logMessage(
+    "DEBUG",
+    "Fetching invoices for deal:",
+    dealId,
+    "and user:",
+    userId
+  );
+
+  try {
+    // Get invoices from MongoDB
+    const dbInvoices = await db
+      .collection(QB_INVOICE_COLLECTION)
+      .find({ dealId })
+      .toArray();
+
+    if (!dbInvoices || dbInvoices.length === 0) {
+      logMessage("INFO", "No invoices found for deal:", dealId);
+      return { invoices: [], quickbooksInvoices: [] };
+    }
+
+    logMessage("INFO", "Invoices found for deal:", dealId, dbInvoices.length);
+
+    // Get QuickBooks tokens
+    const tokenDoc = await db
+      .collection(QB_TOKEN_COLLECTION)
+      .findOne({ userId });
+
+    if (!tokenDoc) {
+      logMessage("WARN", "QuickBooks not connected for user:", userId);
+      return { error: "QuickBooks not connected", status: 400 };
+    }
+
+    const accessToken = tokenDoc.accessToken;
+    const refreshToken = tokenDoc.refreshToken;
+    const realmId = tokenDoc.realmId;
+
+    if (!accessToken || !refreshToken || !realmId) {
+      logMessage("WARN", "Missing QuickBooks tokens for user:", userId);
+      return { error: "Missing QuickBooks tokens", status: 400 };
+    }
+
+    // Batch verify all invoiceNumbers in QuickBooks
+    const invoiceIds = dbInvoices.map(
+      (inv) => inv.invoiceNumber || inv.invoiceId
+    );
+
+    const quickbooksInvoiceValidity =
+      await quickbooksService.verifyInvoicesInQuickBooks(
+        realmId,
+        accessToken,
+        refreshToken,
+        invoiceIds
+      );
+
+    // Only proceed with deletion if validity is a non-empty object
+    let invoicesWithValidity = dbInvoices;
+    console.log("QuickBooks invoice validity:", quickbooksInvoiceValidity);
+
+    if (
+      quickbooksInvoiceValidity &&
+      typeof quickbooksInvoiceValidity === "object" &&
+      Object.keys(quickbooksInvoiceValidity).length > 0
+    ) {
+      // Remove invoices from DB that are deleted in QuickBooks
+      const deletedInvoiceIds = dbInvoices
+        .filter(
+          (inv) =>
+            !quickbooksInvoiceValidity[inv.invoiceNumber || inv.invoiceId]
+        )
+        .map((inv) => inv._id);
+
+      if (deletedInvoiceIds.length > 0) {
+        await db
+          .collection(QB_INVOICE_COLLECTION)
+          .deleteMany({ _id: { $in: deletedInvoiceIds } });
+
+        logMessage(
+          "INFO",
+          `Removed ${deletedInvoiceIds.length} invoices from DB that were deleted in QuickBooks.`
+        );
+      }
+
+      // Attach validity and filter out deleted invoices
+      invoicesWithValidity = dbInvoices
+        .map((inv) => ({
+          ...inv,
+          isValidInQuickBooks:
+            quickbooksInvoiceValidity[inv.invoiceNumber || inv.invoiceId] ||
+            false,
+        }))
+        .filter((inv) => inv.isValidInQuickBooks);
+    }
+
+    return { invoices: invoicesWithValidity };
+  } catch (error) {
+    logMessage(
+      "ERROR",
+      "Error in getInvoicesForDeal:",
+      error && error.stack ? error.stack : JSON.stringify(error)
+    );
+    return { error: error.message, status: 500 };
+  }
+}
+
 module.exports = {
   handleCreateInvoice,
+  getInvoicesForDeal,
 };
