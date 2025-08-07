@@ -305,14 +305,18 @@ Resources:
           DOCDB_DBNAME: !Ref DocDBClusterIdentifier
           DOCDB_OPTIONS: !Ref DocDBOptions
           DOCDB_PASSWORD_SECRET_NAME: docdb/master/password
-          # DOCDB_PASSWORD_SECRET_ARN: !Sub "{{resolve:secretsmanager:docdb/master/password:SecretId}}"
           QUICKBOOKS_CLIENT_ID: your-client-id
           QUICKBOOKS_CLIENT_SECRET: your-client-secret
           QUICKBOOKS_ENVIRONMENT: your-env
           QUICKBOOKS_REDIRECT_URI: your-redirect-uri
           HUBSPOT_API_KEY: your-hubspot-key
-          API_KEY: your-api-key
-          # Add other env vars as needed
+          API_KEY: "{{resolve:secretsmanager:HubspotQuickbookApiKeySecret:SecretString:API_KEY}}"
+  HubspotQuickbookApiKeySecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: HubspotQuickbookApiKeySecret
+      Description: API Key for HubSpot-QuickBooks backend
+      SecretString: '{"API_KEY":"your-api-key-value"}'
       VpcConfig:
         SubnetIds:
           - !Ref PrivateSubnet1

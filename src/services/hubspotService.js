@@ -62,10 +62,6 @@ async function getAssociatedContactsForDeal(dealId) {
     inputs: [dealId].map((id) => ({ id })),
   };
 
-  // console.log("Fetching associated contacts for deal:", dealId);
-  // hubspotClient.config.accessToken = process.env.HUBSPOT_API_KEY;
-  // console.log("config", hubspotClient.config);
-
   // Get associations for the deal
   const associations = await hubspotClient.crm.associations.v4.batchApi.getPage(
     "deals",
@@ -143,6 +139,7 @@ async function getCrmCardDetailsByDealId(objectType, subObjectType, dealId) {
   return response.results;
 }
 
+// Validate HubSpot request signature
 function validateHubSpotRequest(req) {
   const signatureHeader = req.headers["x-hubspot-signature-v3"];
   const timestampHeader = req.headers["x-hubspot-request-timestamp"];

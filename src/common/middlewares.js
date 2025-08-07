@@ -22,7 +22,7 @@ function enforceApiKey(options = {}) {
     }
 
     const apiKey = req.headers["x-api-key"];
-    console.log("API Key:", apiKey);
+
     if (!process.env.API_KEY) {
       logMessage("WARN", "API_KEY not set in environment");
       return res.status(500).json({ error: "❌ Server misconfiguration" });
