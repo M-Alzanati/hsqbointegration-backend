@@ -317,12 +317,6 @@ Resources:
       Name: HubspotQuickbookApiKeySecret
       Description: API Key for HubSpot-QuickBooks backend
       SecretString: '{"API_KEY":"your-api-key-value"}'
-      VpcConfig:
-        SubnetIds:
-          - !Ref PrivateSubnet1
-          - !Ref PrivateSubnet2
-        SecurityGroupIds:
-          - !Ref LambdaSecurityGroup
 
   LambdaApiInvokePermission:
     Type: AWS::Lambda::Permission
