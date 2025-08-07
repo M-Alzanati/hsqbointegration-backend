@@ -309,8 +309,9 @@ Resources:
           QUICKBOOKS_CLIENT_SECRET: your-client-secret
           QUICKBOOKS_ENVIRONMENT: your-env
           QUICKBOOKS_REDIRECT_URI: your-redirect-uri
-          HUBSPOT_API_KEY: your-hubspot-key
+          HUBSPOT_API_KEY: your-hubspot-key-1
           API_KEY: "{{resolve:secretsmanager:HubspotQuickbookApiKeySecret:SecretString:API_KEY}}"
+
   HubspotQuickbookApiKeySecret:
     Type: AWS::SecretsManager::Secret
     Properties:
