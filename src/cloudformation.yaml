@@ -315,6 +315,7 @@ Resources:
           QUICKBOOKS_CLIENT_ID_SECRET_NAME: quickbooks/client/id
           QUICKBOOKS_CLIENT_KEY_SECRET_NAME: quickbooks/client/secret
           QUICKBOOKS_REDIRECT_URI: !Sub "https://${HubspotQuickbookApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod/quickbooks/callback"
+          QUICKBOOKS_APP_URL: https://app.qbo.intuit.com/app/invoice
           HUBSPOT_API_KEY_SECRET_NAME: hubspot/api/key
           QUICKBOOKS_ENVIRONMENT: production
 
