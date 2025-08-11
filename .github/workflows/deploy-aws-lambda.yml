@@ -11,10 +11,6 @@ on:
         description: "Bootstrap SecretsManager secrets stack (true only for first-time)"
         required: false
         default: "false"
-      UPDATE_SECRETS:
-        description: "Comma-separated list of Secrets Manager names/ARNs to target; leave empty to use defaults"
-        required: false
-        default: "false"
 jobs:
   deploy:
     name: Deploy CloudFormation and Lambda
@@ -63,7 +59,7 @@ jobs:
             --capabilities CAPABILITY_NAMED_IAM
 
       - name: Set DocumentDB password secret value (optional)
-        if: ${{ inputs.UPDATE_SECRETS == 'true' }}
+        if: ${{ inputs.CREATE_SECRETS == 'true' }}
         env:
           DOCDB_PASSWORD: ${{ secrets.DOCDB_PASSWORD }}
         run: |
