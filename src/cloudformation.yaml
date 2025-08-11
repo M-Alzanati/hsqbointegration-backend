@@ -321,7 +321,7 @@ Resources:
           QUICKBOOKS_ENVIRONMENT: production
 
   DataBasePasswordSecret:
-    Condition: CreateSecretsCondition
+    Condition: false
     DeletionPolicy: Retain
     Type: AWS::SecretsManager::Secret
     Properties:
