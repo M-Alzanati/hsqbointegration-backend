@@ -304,20 +304,48 @@ Resources:
           DOCDB_ENDPOINT: !GetAtt DocDBCluster.Endpoint
           DOCDB_DBNAME: !Ref DocDBClusterIdentifier
           DOCDB_OPTIONS: !Ref DocDBOptions
+          API_KEY_SECRET_NAME: service/api/key
           DOCDB_PASSWORD_SECRET_NAME: docdb/master/password
-          QUICKBOOKS_CLIENT_ID: your-client-id
-          QUICKBOOKS_CLIENT_SECRET: your-client-secret
-          QUICKBOOKS_ENVIRONMENT: your-env
-          QUICKBOOKS_REDIRECT_URI: your-redirect-uri
-          HUBSPOT_API_KEY: your-hubspot-key-1
-          API_KEY_SECRET_NAME: HubspotQuickbookApiKeySecret
+          QUICKBOOKS_CLIENT_ID_SECRET_NAME: quickbooks/client/id
+          QUICKBOOKS_CLIENT_KEY_SECRET_NAME: quickbooks/client/secret
+          QUICKBOOKS_REDIRECT_URI: !Sub "https://${HubspotQuickbookApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod/quickbooks/callback"
+          HUBSPOT_API_KEY_SECRET_NAME: hubspot/api/key
+          QUICKBOOKS_ENVIRONMENT: production
 
-  HubspotQuickbookApiKeySecret:
+  DataBasePasswordSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
-      Name: HubspotQuickbookApiKeySecret
-      Description: API Key for HubSpot-QuickBooks backend
+      Name: docdb/master/password
+      Description: Database Password
+      SecretString: '{"password":"your-database-password-value"}'
+
+  ServiceApiKeySecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: service/api/key
+      Description: API Key for Backend Service
       SecretString: '{"API_KEY":"your-api-key-value"}'
+
+  QuickbookClientKeySecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: quickbooks/client/secret
+      Description: Client Secret for QuickBooks
+      SecretString: '{"QUICKBOOKS_CLIENT_SECRET":"your-api-key-value"}'
+
+  QuickbookClientIdSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: quickbooks/client/id
+      Description: Client Id for QuickBooks
+      SecretString: '{"QUICKBOOKS_CLIENT_ID":"your-api-key-value"}'
+
+  HubspotApiKeySecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: hubspot/api/key
+      Description: API Key for HubSpot
+      SecretString: '{"HUBSPOT_API_KEY":"your-api-key-value"}'
 
   LambdaApiInvokePermission:
     Type: AWS::Lambda::Permission

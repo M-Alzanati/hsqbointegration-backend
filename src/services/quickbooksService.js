@@ -8,13 +8,67 @@ const {
 const { QUICKBOOKS_APP_URL } = require("../models/urls");
 const { logMessage } = require("../common/logger");
 const { toCamelCase } = require("../common/helpers");
+const { getSecretStringFlexible } = require("../common/secrets");
 
-const oauthClient = new OAuthClient({
-  clientId: process.env.QUICKBOOKS_CLIENT_ID,
-  clientSecret: process.env.QUICKBOOKS_CLIENT_SECRET,
-  environment: process.env.QUICKBOOKS_ENVIRONMENT,
-  redirectUri: process.env.QUICKBOOKS_REDIRECT_URI,
-});
+// Lazy-loaded credentials and OAuth client
+let cachedQBClientId = null;
+let cachedQBClientSecret = null;
+let credsLoadedAt = 0;
+let cachedOAuthClient = null;
+const CREDS_TTL = 10 * 60 * 1000; // 10 minutes
+
+async function ensureQuickBooksCreds() {
+  const now = Date.now();
+  // Use direct env vars for local dev if present
+  if (process.env.QUICKBOOKS_CLIENT_ID && process.env.QUICKBOOKS_CLIENT_SECRET) {
+    cachedQBClientId = process.env.QUICKBOOKS_CLIENT_ID;
+    cachedQBClientSecret = process.env.QUICKBOOKS_CLIENT_SECRET;
+    credsLoadedAt = now;
+    return;
+  }
+
+  if (cachedQBClientId && cachedQBClientSecret && now - credsLoadedAt < CREDS_TTL) {
+    return;
+  }
+
+  const idSecretName = process.env.QUICKBOOKS_CLIENT_ID_SECRET_NAME;
+  const keySecretName = process.env.QUICKBOOKS_CLIENT_KEY_SECRET_NAME || process.env.QUICKBOOKS_CLIENT_SECRET_SECRET_NAME;
+
+  const id = await getSecretStringFlexible(idSecretName, [
+    "QUICKBOOKS_CLIENT_ID",
+    "clientId",
+    "CLIENT_ID",
+    "id",
+  ]);
+  const secret = await getSecretStringFlexible(keySecretName, [
+    "QUICKBOOKS_CLIENT_SECRET",
+    "clientSecret",
+    "CLIENT_SECRET",
+    "secret",
+    "key",
+  ]);
+
+  cachedQBClientId = id || cachedQBClientId;
+  cachedQBClientSecret = secret || cachedQBClientSecret;
+  credsLoadedAt = now;
+}
+
+async function getOAuthClient() {
+  await ensureQuickBooksCreds();
+  if (!cachedQBClientId || !cachedQBClientSecret) {
+    throw new Error("Missing QuickBooks client credentials");
+  }
+  // Recreate client if missing or credentials may have rotated
+  if (!cachedOAuthClient) {
+    cachedOAuthClient = new OAuthClient({
+      clientId: cachedQBClientId,
+      clientSecret: cachedQBClientSecret,
+      environment: process.env.QUICKBOOKS_ENVIRONMENT,
+      redirectUri: process.env.QUICKBOOKS_REDIRECT_URI,
+    });
+  }
+  return cachedOAuthClient;
+}
 
 /**
  * Helper to create a QuickBooks instance
@@ -25,8 +79,8 @@ const oauthClient = new OAuthClient({
  */
 function getQBOInstance(realmId, accessToken, refreshToken) {
   return new QuickBooks(
-    process.env.QUICKBOOKS_CLIENT_ID,
-    process.env.QUICKBOOKS_CLIENT_SECRET,
+    cachedQBClientId || process.env.QUICKBOOKS_CLIENT_ID,
+    cachedQBClientSecret || process.env.QUICKBOOKS_CLIENT_SECRET,
     accessToken,
     false,
     realmId,
@@ -43,9 +97,9 @@ function getQBOInstance(realmId, accessToken, refreshToken) {
  * @param {string} userId - The user ID
  * @returns {string} The authorization URI
  */
-function getAuthUri(userId) {
+async function getAuthUri(userId) {
   logMessage("DEBUG", "Generating auth URI for user:", userId);
-
+  const oauthClient = await getOAuthClient();
   const authUri = oauthClient.authorizeUri({
     scope: [
       OAuthClient.scopes.Accounting,
@@ -54,7 +108,6 @@ function getAuthUri(userId) {
     ],
     state: userId,
   });
-
   logMessage("DEBUG", "Generated auth URI:", authUri);
   return authUri;
 }
@@ -66,7 +119,7 @@ function getAuthUri(userId) {
  */
 async function checkConnection(userId) {
   const db = getDB();
-  let authUrl = getAuthUri(userId);
+  let authUrl = await getAuthUri(userId);
   logMessage("INFO", "🔄 Checking QuickBooks connection for user:", userId);
   logMessage("DEBUG", "Auth URL generated:", authUrl);
 
@@ -147,7 +200,8 @@ async function handleCallback(parseRedirectUrl, code, state) {
       parseRedirectUrl,
     });
 
-    await oauthClient.createToken(parseRedirectUrl);
+  const oauthClient = await getOAuthClient();
+  await oauthClient.createToken(parseRedirectUrl);
     logMessage("DEBUG", "OAuth client after createToken:", {
       hasToken: !!oauthClient.token,
       tokenKeys: oauthClient.token ? Object.keys(oauthClient.token) : [],
@@ -252,7 +306,8 @@ async function handleRefreshToken(userId) {
       };
     }
 
-    await oauthClient.refreshUsingToken(tokenDoc.refresh_token);
+  const oauthClient = await getOAuthClient();
+  await oauthClient.refreshUsingToken(tokenDoc.refresh_token);
     logMessage("INFO", "🔄 Refreshing token for user:", userId);
 
     await db.collection(QB_TOKEN_COLLECTION).updateOne(
@@ -297,6 +352,7 @@ async function getOrCreateCustomer(
   contact,
   refreshToken
 ) {
+  await ensureQuickBooksCreds();
   logMessage(
     "DEBUG",
     "Creating QuickBooks instance for customer lookup/creation",
@@ -455,6 +511,7 @@ async function handleQBOFindCustomers(qbo, contact) {
  * @returns {Promise<Object>} - QuickBooks customer object
  */
 async function getCustomerByEmail(realmId, accessToken, email) {
+  await ensureQuickBooksCreds();
   const qbo = getQBOInstance(realmId, accessToken);
 
   const query = `SELECT * FROM Customer WHERE PrimaryEmailAddr = '${email}'`;
@@ -488,6 +545,7 @@ async function createInvoice(
   customerId,
   deal
 ) {
+  await ensureQuickBooksCreds();
   logMessage("DEBUG", "Creating QuickBooks instance for invoice creation", {
     realmId,
     hasAccessToken: !!accessToken,
@@ -593,6 +651,7 @@ async function getInvoicesForCustomer(
   dealId
 ) {
   // Create QuickBooks instance
+  await ensureQuickBooksCreds();
   const qbo = getQBOInstance(realmId, accessToken, refreshToken);
 
   const query = `SELECT * FROM Invoice WHERE CustomerRef = '${customerId}'`;
@@ -634,6 +693,7 @@ async function isInvoiceValidInQuickBooks(
   refreshToken,
   invoiceId
 ) {
+  await ensureQuickBooksCreds();
   const qbo = getQBOInstance(realmId, accessToken, refreshToken);
 
   try {
@@ -679,6 +739,7 @@ async function verifyInvoicesInQuickBooks(
   refreshToken,
   invoiceIds
 ) {
+  await ensureQuickBooksCreds();
   const qbo = getQBOInstance(realmId, accessToken, refreshToken);
   if (!Array.isArray(invoiceIds) || invoiceIds.length === 0) {
     return {};

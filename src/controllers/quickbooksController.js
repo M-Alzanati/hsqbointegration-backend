@@ -30,8 +30,8 @@ exports.checkConnection = async (req, res) => {
   }
 };
 
-exports.connectQuickBooks = (req, res) => {
-  const authUri = quickbooksService.getAuthUri(req.query.userId);
+exports.connectQuickBooks = async (req, res) => {
+  const authUri = await quickbooksService.getAuthUri(req.query.userId);
   res.redirect(authUri);
 };
 
