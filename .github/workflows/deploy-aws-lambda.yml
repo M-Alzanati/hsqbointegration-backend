@@ -11,6 +11,14 @@ on:
         description: "Bootstrap SecretsManager secrets stack (true only for first-time)"
         required: false
         default: "false"
+      DELETE_SECRET_NAME:
+        description: "Dangerous: Secrets Manager secret name or ARN to delete immediately (leave empty to skip)"
+        required: false
+        default: ""
+      FORCE_DELETE:
+        description: "Type 'true' to force immediate deletion without recovery (irreversible)"
+        required: false
+        default: "false"
 
 jobs:
   deploy:
@@ -43,6 +51,10 @@ jobs:
           aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: Delete Secrets Manager secret (dangerous, irreversible)
+        if: ${{ inputs.FORCE_DELETE == 'true' && inputs.DELETE_SECRET_NAME != '' }}
+        run: aws secretsmanager delete-secret --secret-id "${{ inputs.DELETE_SECRET_NAME }}" --force-delete-without-recovery
 
       - name: Deploy S3 bucket (bucket-only stack)
         run: >
