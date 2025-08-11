@@ -8,7 +8,7 @@ on:
         required: false
         default: "us-east-1"
       CREATE_SECRETS:
-        description: "Create SecretsManager secrets (true only for first-time bootstrap)"
+        description: "Bootstrap SecretsManager secrets stack (true only for first-time)"
         required: false
         default: "false"
 
@@ -51,6 +51,14 @@ jobs:
             --template-file src/bucket-only.yaml \
             --capabilities CAPABILITY_NAMED_IAM
 
+      - name: Deploy Secrets stack (optional bootstrap)
+        if: ${{ inputs.CREATE_SECRETS == 'true' }}
+        run: >
+          aws cloudformation deploy \
+            --stack-name hubspot-quickbooks-secrets \
+            --template-file src/secrets-only.yaml \
+            --capabilities CAPABILITY_NAMED_IAM
+
       - name: Get bucket name output
         id: get_bucket
         run: |
@@ -66,7 +74,7 @@ jobs:
             --stack-name hubspot-quickbooks-backend \
             --template-file src/cloudformation.yaml \
             --capabilities CAPABILITY_NAMED_IAM \
-            --parameter-overrides LambdaS3Key=hubspot-quickbooks-backend.zip LambdaDeploymentBucket=${{ steps.get_bucket.outputs.bucket_name }} CreateSecrets=${{ inputs.CREATE_SECRETS }}
+            --parameter-overrides LambdaS3Key=hubspot-quickbooks-backend.zip LambdaDeploymentBucket=${{ steps.get_bucket.outputs.bucket_name }}
 
       - name: Update Lambda code
         run: >

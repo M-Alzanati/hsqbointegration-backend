@@ -2,11 +2,6 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: Deploy Node.js QuickBooks-HubSpot backend to Lambda with MongoDB DocumentDB
 
 Parameters:
-  CreateSecrets:
-    Type: String
-    Default: "false"
-    AllowedValues: ["true", "false"]
-    Description: Whether this stack should create Secrets Manager secrets. Set to true only in fresh environments.
   VpcCidr:
     Type: String
     Default: 10.0.0.0/16
@@ -42,9 +37,6 @@ Parameters:
     Type: String
     Default: tls=true&retryWrites=false&authMechanism=SCRAM-SHA-1
     Description: Connection options for DocumentDB
-
-Conditions:
-  CreateSecretsCondition: !Equals [!Ref CreateSecrets, "true"]
 
 Resources:
   VPC:
@@ -319,51 +311,6 @@ Resources:
           QUICKBOOKS_REDIRECT_URI: !Sub "https://${HubspotQuickbookApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod/quickbooks/callback"
           HUBSPOT_API_KEY_SECRET_NAME: hubspot/api/key
           QUICKBOOKS_ENVIRONMENT: production
-
-  DataBasePasswordSecret:
-    Condition: CreateSecretsCondition
-    DeletionPolicy: Retain
-    Type: AWS::SecretsManager::Secret
-    Properties:
-      Name: docdb/password
-      Description: Database Password
-      SecretString: '{"password":"your-database-password-value"}'
-
-  ServiceApiKeySecret:
-    Condition: CreateSecretsCondition
-    DeletionPolicy: Retain
-    Type: AWS::SecretsManager::Secret
-    Properties:
-      Name: service/api/key
-      Description: API Key for Backend Service
-      SecretString: '{"API_KEY":"your-api-key-value"}'
-
-  QuickbookClientKeySecret:
-    Condition: CreateSecretsCondition
-    DeletionPolicy: Retain
-    Type: AWS::SecretsManager::Secret
-    Properties:
-      Name: quickbooks/client/secret
-      Description: Client Secret for QuickBooks
-      SecretString: '{"QUICKBOOKS_CLIENT_SECRET":"your-api-key-value"}'
-
-  QuickbookClientIdSecret:
-    Condition: CreateSecretsCondition
-    DeletionPolicy: Retain
-    Type: AWS::SecretsManager::Secret
-    Properties:
-      Name: quickbooks/client/id
-      Description: Client Id for QuickBooks
-      SecretString: '{"QUICKBOOKS_CLIENT_ID":"your-api-key-value"}'
-
-  HubspotApiKeySecret:
-    Condition: CreateSecretsCondition
-    DeletionPolicy: Retain
-    Type: AWS::SecretsManager::Secret
-    Properties:
-      Name: hubspot/api/key
-      Description: API Key for HubSpot
-      SecretString: '{"HUBSPOT_API_KEY":"your-api-key-value"}'
 
   LambdaApiInvokePermission:
     Type: AWS::Lambda::Permission
