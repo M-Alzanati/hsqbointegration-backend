@@ -298,6 +298,12 @@ Resources:
       Runtime: nodejs22.x
       MemorySize: 512
       Timeout: 60
+      VpcConfig:
+        SubnetIds:
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
       Environment:
         Variables:
           DOCDB_USERNAME: !Ref DocDBMasterUsername

@@ -126,6 +126,8 @@ const connectDB = async () => {
           `❌ Cannot connect to ${docdbEndpoint}:${testPort} -`,
           err.message
         );
+
+        throw err;
       }
     }
 
