@@ -4,29 +4,29 @@ const { successResponse, errorResponse } = require("../common/response");
 exports.createConnection = async (req, res) => {
   const { userId } = req.query;
   if (!userId) {
-    return errorResponse(res, "User ID is required", "Invalid request", 400);
+    return errorResponse(res, "❌ User ID is required", "Invalid request", 400);
   }
   try {
     const authUrl = await quickbooksService.getAuthUri(userId);
-    successResponse(res, { authUrl }, "Connection created successfully");
+    successResponse(res, { authUrl }, "✅ Connection created successfully");
   } catch (error) {
     console.error("Error creating QuickBooks connection:", error);
-    errorResponse(res, error.message, "Failed to create connection", 500);
+    errorResponse(res, error.message, "❌ Failed to create connection", 500);
   }
 };
 
 exports.checkConnection = async (req, res) => {
   const { userId } = req.query;
   if (!userId) {
-    return errorResponse(res, "User ID is required", "Invalid request", 400);
+    return errorResponse(res, "❌ User ID is required", "Invalid request", 400);
   }
 
   try {
     const result = await quickbooksService.checkConnection(userId);
-    successResponse(res, result, "Connection status retrieved successfully");
+    successResponse(res, result, "✅ Connection status retrieved successfully");
   } catch (error) {
     console.error("Error checking QuickBooks connection:", error);
-    errorResponse(res, error.message, "Failed to check connection", 500);
+    errorResponse(res, error.message, "❌ Failed to check connection", 500);
   }
 };
 
@@ -61,7 +61,7 @@ exports.quickBooksCallback = async (req, res) => {
     </html>
   `);
   } else {
-    errorResponse(res, result.error, "Failed to connect QuickBooks", 500);
+    errorResponse(res, result.error, "❌ Failed to connect QuickBooks", 500);
   }
 };
 
@@ -69,12 +69,12 @@ exports.refreshToken = async (req, res) => {
   const { userId } = req.query;
   const result = await quickbooksService.handleRefreshToken(userId);
   if (result.success) {
-    successResponse(res, result, "Token refreshed successfully");
+    successResponse(res, result, "✅ Token refreshed successfully");
   } else {
     errorResponse(
       res,
       result.error,
-      "Failed to refresh token",
+      "❌ Failed to refresh token",
       result.status || 500
     );
   }

@@ -20,19 +20,28 @@ const CREDS_TTL = 10 * 60 * 1000; // 10 minutes
 async function ensureQuickBooksCreds() {
   const now = Date.now();
   // Use direct env vars for local dev if present
-  if (process.env.QUICKBOOKS_CLIENT_ID && process.env.QUICKBOOKS_CLIENT_SECRET) {
+  if (
+    process.env.QUICKBOOKS_CLIENT_ID &&
+    process.env.QUICKBOOKS_CLIENT_SECRET
+  ) {
     cachedQBClientId = process.env.QUICKBOOKS_CLIENT_ID;
     cachedQBClientSecret = process.env.QUICKBOOKS_CLIENT_SECRET;
     credsLoadedAt = now;
     return;
   }
 
-  if (cachedQBClientId && cachedQBClientSecret && now - credsLoadedAt < CREDS_TTL) {
+  if (
+    cachedQBClientId &&
+    cachedQBClientSecret &&
+    now - credsLoadedAt < CREDS_TTL
+  ) {
     return;
   }
 
   const idSecretName = process.env.QUICKBOOKS_CLIENT_ID_SECRET_NAME;
-  const keySecretName = process.env.QUICKBOOKS_CLIENT_KEY_SECRET_NAME || process.env.QUICKBOOKS_CLIENT_SECRET_SECRET_NAME;
+  const keySecretName =
+    process.env.QUICKBOOKS_CLIENT_KEY_SECRET_NAME ||
+    process.env.QUICKBOOKS_CLIENT_SECRET_SECRET_NAME;
 
   const id = await getSecretStringFlexible(idSecretName, [
     "QUICKBOOKS_CLIENT_ID",
@@ -55,9 +64,11 @@ async function ensureQuickBooksCreds() {
 
 async function getOAuthClient() {
   await ensureQuickBooksCreds();
+
   if (!cachedQBClientId || !cachedQBClientSecret) {
     throw new Error("Missing QuickBooks client credentials");
   }
+
   // Recreate client if missing or credentials may have rotated
   if (!cachedOAuthClient) {
     cachedOAuthClient = new OAuthClient({
@@ -67,6 +78,7 @@ async function getOAuthClient() {
       redirectUri: process.env.QUICKBOOKS_REDIRECT_URI,
     });
   }
+
   return cachedOAuthClient;
 }
 
@@ -99,6 +111,7 @@ function getQBOInstance(realmId, accessToken, refreshToken) {
  */
 async function getAuthUri(userId) {
   logMessage("DEBUG", "Generating auth URI for user:", userId);
+
   const oauthClient = await getOAuthClient();
   const authUri = oauthClient.authorizeUri({
     scope: [
@@ -108,6 +121,7 @@ async function getAuthUri(userId) {
     ],
     state: userId,
   });
+
   logMessage("DEBUG", "Generated auth URI:", authUri);
   return authUri;
 }
@@ -120,6 +134,7 @@ async function getAuthUri(userId) {
 async function checkConnection(userId) {
   const db = getDB();
   let authUrl = await getAuthUri(userId);
+
   logMessage("INFO", "🔄 Checking QuickBooks connection for user:", userId);
   logMessage("DEBUG", "Auth URL generated:", authUrl);
 
@@ -187,6 +202,7 @@ async function checkConnection(userId) {
  */
 async function handleCallback(parseRedirectUrl, code, state) {
   const db = getDB();
+
   try {
     logMessage(
       "INFO",
@@ -200,8 +216,8 @@ async function handleCallback(parseRedirectUrl, code, state) {
       parseRedirectUrl,
     });
 
-  const oauthClient = await getOAuthClient();
-  await oauthClient.createToken(parseRedirectUrl);
+    const oauthClient = await getOAuthClient();
+    await oauthClient.createToken(parseRedirectUrl);
     logMessage("DEBUG", "OAuth client after createToken:", {
       hasToken: !!oauthClient.token,
       tokenKeys: oauthClient.token ? Object.keys(oauthClient.token) : [],
@@ -306,8 +322,8 @@ async function handleRefreshToken(userId) {
       };
     }
 
-  const oauthClient = await getOAuthClient();
-  await oauthClient.refreshUsingToken(tokenDoc.refresh_token);
+    const oauthClient = await getOAuthClient();
+    await oauthClient.refreshUsingToken(tokenDoc.refresh_token);
     logMessage("INFO", "🔄 Refreshing token for user:", userId);
 
     await db.collection(QB_TOKEN_COLLECTION).updateOne(
@@ -374,7 +390,7 @@ async function getOrCreateCustomer(
   } else if (typeof qbo.query === "function") {
     customerResponse = await handleQBOQuery();
   } else {
-    throw new Error("No supported method to find customers on qbo instance");
+    throw new Error("❌ No supported method to find customers on qbo instance");
   }
 
   let customerId, customerDataToSave;
@@ -404,7 +420,7 @@ async function getOrCreateCustomer(
   }
 
   if (!customerId) {
-    throw new Error("Failed to find or create customer in QuickBooks");
+    throw new Error("❌ Failed to find or create customer in QuickBooks");
   }
 
   // Save customer to MongoDB (upsert by contact_id, matching unique index in db.js)
@@ -416,10 +432,13 @@ async function getOrCreateCustomer(
       // Try to get from HubSpot contact if available
       contactId = contact.contact_id || contact.id || null;
     }
+
     if (!contactId) {
       throw new Error("Missing contact_id for MongoDB upsert");
     }
+
     customerDoc.contactId = contactId; // Always set contactId in document
+
     await db
       .collection(QB_HUBSPOT_CUSTOMER_COLLECTION)
       .updateOne(
@@ -523,7 +542,7 @@ async function getCustomerByEmail(realmId, accessToken, email) {
   });
 
   if (!response.QueryResponse || !response.QueryResponse.Customer) {
-    throw new Error(`No customer found with email: ${email}`);
+    throw new Error(`❌ No customer found with email: ${email}`);
   }
 
   return response.QueryResponse.Customer[0];

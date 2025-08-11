@@ -23,7 +23,7 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
 
     if (!tokenDoc) {
       logMessage("WARN", "QuickBooks not connected for user:", userId);
-      return { error: "QuickBooks not connected", status: 400 };
+      return { error: "❌ QuickBooks not connected", status: 400 };
     }
 
     accessToken = tokenDoc.accessToken;
@@ -32,7 +32,7 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
 
     if (!accessToken || !refreshToken || !realmId) {
       logMessage("WARN", "Missing QuickBooks tokens for user:", userId);
-      return { error: "Missing QuickBooks tokens", status: 400 };
+      return { error: "❌ Missing QuickBooks tokens", status: 400 };
     }
 
     // Get deal and contact from HubSpot
@@ -74,7 +74,7 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
     );
 
     if (!invoiceNumber || !invoiceUrl) {
-      throw new Error("Failed to create invoice in QuickBooks");
+      throw new Error("❌ Failed to create invoice in QuickBooks");
     }
 
     logMessage(
@@ -124,7 +124,7 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
 
     logMessage(
       "ERROR",
-      "Error in handleCreateInvoice:",
+      "❌ Error in handleCreateInvoice:",
       error && error.stack ? error.stack : JSON.stringify(error)
     );
     return { error: error.message, status: 500 };
@@ -166,7 +166,7 @@ async function getInvoicesForDeal(dealId, userId) {
 
     if (!tokenDoc) {
       logMessage("WARN", "QuickBooks not connected for user:", userId);
-      return { error: "QuickBooks not connected", status: 400 };
+      return { error: "❌ QuickBooks not connected", status: 400 };
     }
 
     const accessToken = tokenDoc.accessToken;
@@ -175,7 +175,7 @@ async function getInvoicesForDeal(dealId, userId) {
 
     if (!accessToken || !refreshToken || !realmId) {
       logMessage("WARN", "Missing QuickBooks tokens for user:", userId);
-      return { error: "Missing QuickBooks tokens", status: 400 };
+      return { error: "❌ Missing QuickBooks tokens", status: 400 };
     }
 
     // Batch verify all invoiceNumbers in QuickBooks
@@ -193,7 +193,6 @@ async function getInvoicesForDeal(dealId, userId) {
 
     // Only proceed with deletion if validity is a non-empty object
     let invoicesWithValidity = dbInvoices;
-    console.log("QuickBooks invoice validity:", quickbooksInvoiceValidity);
 
     if (
       quickbooksInvoiceValidity &&
@@ -234,7 +233,7 @@ async function getInvoicesForDeal(dealId, userId) {
   } catch (error) {
     logMessage(
       "ERROR",
-      "Error in getInvoicesForDeal:",
+      "❌ Error in getInvoicesForDeal:",
       error && error.stack ? error.stack : JSON.stringify(error)
     );
     return { error: error.message, status: 500 };

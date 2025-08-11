@@ -5,18 +5,18 @@ const getContactById = async (req, res) => {
   try {
     console.log("Fetching contact by ID:", req.params.id);
     const contact = await hubspotService.getContactById(req.params.id);
-    successResponse(res, contact, "Contact fetched successfully");
+    successResponse(res, contact, "✅ Contact fetched successfully");
   } catch (error) {
-    errorResponse(res, error.message, "Failed to fetch contact", 500);
+    errorResponse(res, error.message, "❌ Failed to fetch contact", 500);
   }
 };
 
 const getDealById = async (req, res) => {
   try {
     const deal = await hubspotService.getDealById(req.params.id);
-    successResponse(res, deal, "Deal fetched successfully");
+    successResponse(res, deal, "✅ Deal fetched successfully");
   } catch (error) {
-    errorResponse(res, error.message, "Failed to fetch deal", 500);
+    errorResponse(res, error.message, "❌ Failed to fetch deal", 500);
   }
 };
 
@@ -25,9 +25,9 @@ const getAllContacts = async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const after = req.query.after;
     const contacts = await hubspotService.getAllContacts(limit, after);
-    successResponse(res, contacts, "Contacts fetched successfully");
+    successResponse(res, contacts, "✅ Contacts fetched successfully");
   } catch (error) {
-    errorResponse(res, error.message, "Failed to fetch contacts", 500);
+    errorResponse(res, error.message, "❌ Failed to fetch contacts", 500);
   }
 };
 
@@ -36,9 +36,9 @@ const getAllDeals = async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const after = req.query.after;
     const deals = await hubspotService.getAllDeals(limit, after);
-    successResponse(res, deals, "Deals fetched successfully");
+    successResponse(res, deals, "✅ Deals fetched successfully");
   } catch (error) {
-    errorResponse(res, error.message, "Failed to fetch deals", 500);
+    errorResponse(res, error.message, "❌ Failed to fetch deals", 500);
   }
 };
 
@@ -50,9 +50,14 @@ const getCrmCardDetails = async (req, res) => {
       objectId,
       associationType
     );
-    successResponse(res, details, "CRM card details fetched successfully");
+    successResponse(res, details, "✅ CRM card details fetched successfully");
   } catch (error) {
-    errorResponse(res, error.message, "Failed to fetch CRM card details", 500);
+    errorResponse(
+      res,
+      error.message,
+      "❌ Failed to fetch CRM card details",
+      500
+    );
   }
 };
 
@@ -67,13 +72,13 @@ const getCrmCardDetailsByDealId = async (req, res) => {
     successResponse(
       res,
       details,
-      "CRM card details by deal ID fetched successfully"
+      "✅ CRM card details by deal ID fetched successfully"
     );
   } catch (error) {
     errorResponse(
       res,
       error.message,
-      "Failed to fetch CRM card details by deal ID",
+      "❌ Failed to fetch CRM card details by deal ID",
       500
     );
   }
@@ -83,12 +88,16 @@ const getAssociatedContactsForDeal = async (req, res) => {
   try {
     const { dealId } = req.params;
     const contacts = await hubspotService.getAssociatedContactsForDeal(dealId);
-    successResponse(res, contacts, "Associated contacts fetched successfully");
+    successResponse(
+      res,
+      contacts,
+      "✅ Associated contacts fetched successfully"
+    );
   } catch (error) {
     errorResponse(
       res,
       error.message,
-      "Failed to fetch associated contacts",
+      "❌ Failed to fetch associated contacts",
       500
     );
   }

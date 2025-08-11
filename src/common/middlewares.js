@@ -86,13 +86,16 @@ function enforceApiKey(options = {}) {
 
     const apiKey = req.headers["x-api-key"];
     const expectedApiKey = await getApiKeyCached();
+
     if (!expectedApiKey) {
       logMessage("WARN", "API_KEY not set in environment or Secrets Manager");
       return res.status(500).json({ error: "❌ Server misconfiguration" });
     }
+
     if (!apiKey || apiKey !== expectedApiKey) {
       return res.status(401).json({ error: "❌ Invalid or missing API key" });
     }
+    
     next();
   };
 }

@@ -12,7 +12,10 @@ async function getHubspotAccessToken() {
     return process.env.HUBSPOT_API_KEY;
   }
   const now = Date.now();
-  if (cachedHubspotToken && now - hubspotLoadedAt < HUBSPOT_TTL) return cachedHubspotToken;
+  if (cachedHubspotToken && now - hubspotLoadedAt < HUBSPOT_TTL) {
+    return cachedHubspotToken;
+  }
+
   const secretName = process.env.HUBSPOT_API_KEY_SECRET_NAME;
   const token = await getSecretStringFlexible(secretName, [
     "HUBSPOT_API_KEY",
@@ -20,6 +23,7 @@ async function getHubspotAccessToken() {
     "token",
     "apiKey",
   ]);
+
   cachedHubspotToken = token;
   hubspotLoadedAt = now;
   return token;
@@ -27,9 +31,11 @@ async function getHubspotAccessToken() {
 
 async function getHubspotClient() {
   const token = await getHubspotAccessToken();
+
   if (!token) {
     throw new Error("Missing HubSpot API token");
   }
+
   return new HubspotClient.Client({
     accessToken: token,
     numberOfApiCallRetries: 3,
@@ -75,6 +81,7 @@ async function getContactById(
     contactId,
     properties
   );
+
   return contactResponse.properties;
 }
 
@@ -85,6 +92,7 @@ async function getDealById(dealId, properties = ["amount"]) {
     dealId,
     properties
   );
+
   return dealResponse.properties;
 }
 
@@ -111,8 +119,8 @@ async function getAssociatedContactsForDeal(dealId) {
       }
 
       const contactId = item.toObjectId;
-  const hubspotClient2 = await getHubspotClient();
-  const contact = await hubspotClient2.crm.contacts.basicApi.getById(
+      const hubspotClient2 = await getHubspotClient();
+      const contact = await hubspotClient2.crm.contacts.basicApi.getById(
         contactId,
         ["email", "firstname", "lastname"]
       );
@@ -209,6 +217,7 @@ function validateHubSpotRequest(req) {
   if (!clientSecret) {
     return { valid: false, reason: "Missing CLIENT_SECRET" };
   }
+
   const hashedString = crypto
     .createHmac("sha256", clientSecret)
     .update(rawString)

@@ -78,7 +78,7 @@ app.get("/favicon.ico", (req, res) => {
 // Health check route
 app.get("/health", enforceApiKey(), (req, res) => {
   res.json({
-    status: "healthy",
+    status: "✅ healthy",
     timestamp: new Date().toISOString(),
   });
 });
