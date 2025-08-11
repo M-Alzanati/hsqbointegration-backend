@@ -276,7 +276,7 @@ Resources:
     Type: AWS::DocDB::DBCluster
     Properties:
       MasterUsername: !Ref DocDBMasterUsername
-      MasterUserPassword: !Sub "{{resolve:secretsmanager:docdb/master/password:SecretString:password}}"
+      MasterUserPassword: !Sub "{{resolve:secretsmanager:docdb/password:SecretString:password}}"
       DBClusterIdentifier: !Ref DocDBClusterIdentifier
       BackupRetentionPeriod: 7
       PreferredBackupWindow: 07:00-09:00
@@ -313,7 +313,7 @@ Resources:
           DOCDB_DBNAME: !Ref DocDBClusterIdentifier
           DOCDB_OPTIONS: !Ref DocDBOptions
           API_KEY_SECRET_NAME: service/api/key
-          DOCDB_PASSWORD_SECRET_NAME: docdb/master/password
+          DOCDB_PASSWORD_SECRET_NAME: docdb/password
           QUICKBOOKS_CLIENT_ID_SECRET_NAME: quickbooks/client/id
           QUICKBOOKS_CLIENT_KEY_SECRET_NAME: quickbooks/client/secret
           QUICKBOOKS_REDIRECT_URI: !Sub "https://${HubspotQuickbookApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod/quickbooks/callback"
@@ -321,11 +321,11 @@ Resources:
           QUICKBOOKS_ENVIRONMENT: production
 
   DataBasePasswordSecret:
-    Condition: false
+    Condition: CreateSecretsCondition
     DeletionPolicy: Retain
     Type: AWS::SecretsManager::Secret
     Properties:
-      Name: docdb/master/password
+      Name: docdb/password
       Description: Database Password
       SecretString: '{"password":"your-database-password-value"}'
 
