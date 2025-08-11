@@ -59,6 +59,17 @@ jobs:
             --template-file src/secrets-only.yaml \
             --capabilities CAPABILITY_NAMED_IAM
 
+      - name: Set DocumentDB password secret value (optional)
+        if: ${{ inputs.CREATE_SECRETS == 'true' }}
+        run: |
+          if [ -n "$DOCDB_PASSWORD" ]; then
+            aws secretsmanager put-secret-value \
+              --secret-id docdb/password \
+              --secret-string "{\"password\":\"$DOCDB_PASSWORD\"}"
+          else
+            echo "DOCDB_PASSWORD secret not set, skipping."
+          fi
+
       - name: Get bucket name output
         id: get_bucket
         run: |
