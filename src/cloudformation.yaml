@@ -43,12 +43,10 @@ Parameters:
     Default: tls=true&retryWrites=false&authMechanism=SCRAM-SHA-1
     Description: Connection options for DocumentDB
 
-Resources:
-  CreateSecretsCondition:
-    Type: AWS::NoValue
-
 Conditions:
-  CreateSecretsCondition: !Equals [ !Ref CreateSecrets, "true" ]
+  CreateSecretsCondition: !Equals [!Ref CreateSecrets, "true"]
+
+Resources:
   VPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -323,45 +321,45 @@ Conditions:
           QUICKBOOKS_ENVIRONMENT: production
 
   DataBasePasswordSecret:
+    Condition: CreateSecretsCondition
+    DeletionPolicy: Retain
     Type: AWS::SecretsManager::Secret
-  Condition: CreateSecretsCondition
-  DeletionPolicy: Retain
     Properties:
       Name: docdb/master/password
       Description: Database Password
       SecretString: '{"password":"your-database-password-value"}'
 
   ServiceApiKeySecret:
+    Condition: CreateSecretsCondition
+    DeletionPolicy: Retain
     Type: AWS::SecretsManager::Secret
-  Condition: CreateSecretsCondition
-  DeletionPolicy: Retain
     Properties:
       Name: service/api/key
       Description: API Key for Backend Service
       SecretString: '{"API_KEY":"your-api-key-value"}'
 
   QuickbookClientKeySecret:
+    Condition: CreateSecretsCondition
+    DeletionPolicy: Retain
     Type: AWS::SecretsManager::Secret
-  Condition: CreateSecretsCondition
-  DeletionPolicy: Retain
     Properties:
       Name: quickbooks/client/secret
       Description: Client Secret for QuickBooks
       SecretString: '{"QUICKBOOKS_CLIENT_SECRET":"your-api-key-value"}'
 
   QuickbookClientIdSecret:
+    Condition: CreateSecretsCondition
+    DeletionPolicy: Retain
     Type: AWS::SecretsManager::Secret
-  Condition: CreateSecretsCondition
-  DeletionPolicy: Retain
     Properties:
       Name: quickbooks/client/id
       Description: Client Id for QuickBooks
       SecretString: '{"QUICKBOOKS_CLIENT_ID":"your-api-key-value"}'
 
   HubspotApiKeySecret:
+    Condition: CreateSecretsCondition
+    DeletionPolicy: Retain
     Type: AWS::SecretsManager::Secret
-  Condition: CreateSecretsCondition
-  DeletionPolicy: Retain
     Properties:
       Name: hubspot/api/key
       Description: API Key for HubSpot
