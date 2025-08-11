@@ -12,7 +12,7 @@ on:
         required: false
         default: "false"
       DELETE_SECRET_NAME:
-        description: "Dangerous: Secrets Manager secret name or ARN to delete immediately (leave empty to skip)"
+        description: "Dangerous: Secret name(s) or ARN(s) to delete immediately; comma-separated list allowed (leave empty to skip)"
         required: false
         default: ""
       FORCE_DELETE:
@@ -52,9 +52,22 @@ jobs:
           aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Delete Secrets Manager secret (dangerous, irreversible)
+      - name: Delete Secrets Manager secret(s) (dangerous, irreversible)
         if: ${{ inputs.FORCE_DELETE == 'true' && inputs.DELETE_SECRET_NAME != '' }}
-        run: aws secretsmanager delete-secret --secret-id "${{ inputs.DELETE_SECRET_NAME }}" --force-delete-without-recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          IFS=',' read -ra SECRETS <<< "${{ inputs.DELETE_SECRET_NAME }}"
+          for raw in "${SECRETS[@]}"; do
+            name=$(echo "$raw" | xargs)
+            if [[ -n "$name" ]]; then
+              echo "Forcing immediate deletion of secret: $name"
+              aws secretsmanager delete-secret --secret-id "$name" --force-delete-without-recovery || {
+                echo "Failed to delete $name" >&2
+                exit 1
+              }
+            fi
+          done
 
       - name: Deploy S3 bucket (bucket-only stack)
         run: >
@@ -73,6 +86,8 @@ jobs:
 
       - name: Set DocumentDB password secret value (optional)
         if: ${{ inputs.CREATE_SECRETS == 'true' }}
+        env:
+          DOCDB_PASSWORD: ${{ secrets.DOCDB_PASSWORD }}
         run: |
           if [ -n "$DOCDB_PASSWORD" ]; then
             aws secretsmanager put-secret-value \
