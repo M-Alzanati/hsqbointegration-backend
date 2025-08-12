@@ -105,6 +105,22 @@ function getQBOInstance(realmId, accessToken, refreshToken) {
 }
 
 /**
+ * Extracts useful fields from a QuickBooks error object for logging/handling.
+ */
+function parseQboError(err) {
+  const fault = err?.Fault || err?.fault;
+  const first = fault?.Error?.[0] || fault?.error?.[0] || err;
+  return {
+    type: fault?.type,
+    code: first?.code || first?.Code,
+    message: first?.Message || first?.message || err?.message,
+    detail: first?.Detail || first?.detail,
+    element: first?.element || first?.Field || undefined,
+    raw: err,
+  };
+}
+
+/**
  * Generates the QuickBooks OAuth authorization URI for a user
  * @param {string} userId - The user ID
  * @returns {string} The authorization URI
@@ -599,12 +615,29 @@ async function createInvoice(
     throw e;
   }
 
+  // Validate and normalize amount
+  const amount = Number.isFinite(Number(deal.amount))
+    ? parseFloat(deal.amount)
+    : NaN;
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error(
+      `Invalid deal amount for invoice. Received: "${deal.amount}"`
+    );
+  }
+
+  const qty = 1;
+  const unitPrice = amount; // Keep simple: one line with qty 1 at full amount
+
   const invoiceData = {
     Line: [
       {
-        Amount: parseFloat(deal.amount) || 0,
+        Amount: qty * unitPrice,
         DetailType: "SalesItemLineDetail",
-        SalesItemLineDetail: { ItemRef: { value: itemId } },
+        SalesItemLineDetail: {
+          ItemRef: { value: itemId },
+          Qty: qty,
+          UnitPrice: unitPrice,
+        },
       },
     ],
     CustomerRef: { value: customerId },
@@ -615,8 +648,21 @@ async function createInvoice(
   const invoiceResponse = await new Promise((resolve, reject) => {
     qbo.createInvoice(invoiceData, (err, data) => {
       if (err) {
-        logMessage("ERROR", "❌ Error creating QuickBooks invoice:", err);
-        return reject(err);
+        const info = parseQboError(err);
+        // Emit structured details to help diagnose ValidationFaults
+        logMessage("ERROR", "❌ Error creating QuickBooks invoice", {
+          type: info.type,
+          code: info.code,
+          message: info.message,
+          detail: info.detail,
+          element: info.element,
+        });
+        logMessage("DEBUG", "Invoice payload that failed", invoiceData);
+        return reject(
+          new Error(
+            info.message || info.detail || "QuickBooks createInvoice failed"
+          )
+        );
       }
       resolve(data);
     });
