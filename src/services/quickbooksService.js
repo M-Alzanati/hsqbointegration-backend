@@ -17,6 +17,11 @@ let credsLoadedAt = 0;
 let cachedOAuthClient = null;
 const CREDS_TTL = 10 * 60 * 1000; // 10 minutes
 
+// Cache for TaxCode lookup (e.g., GST/HST)
+let cachedTaxCodeId = null;
+let taxCodeCachedAt = 0;
+const TAXCODE_TTL = 6 * 60 * 60 * 1000; // 6 hours
+
 async function ensureQuickBooksCreds() {
   const now = Date.now();
   // Use direct env vars for local dev if present
@@ -61,7 +66,6 @@ async function ensureQuickBooksCreds() {
   cachedQBClientSecret = secret || cachedQBClientSecret;
   credsLoadedAt = now;
 }
-
 async function getOAuthClient() {
   await ensureQuickBooksCreds();
 
@@ -118,6 +122,82 @@ function parseQboError(err) {
     element: first?.element || first?.Field || undefined,
     raw: err,
   };
+}
+
+/**
+ * Find a preferred TaxCode ID (e.g., GST/HST) for the company. Tries env QUICKBOOKS_TAX_CODE_NAMES
+ * as a comma-separated list of names to match first. Falls back to searching for common Canadian
+ * names like HST, GST/HST, GST.
+ */
+async function getPreferredTaxCodeId(qbo) {
+  const now = Date.now();
+  if (cachedTaxCodeId && now - taxCodeCachedAt < TAXCODE_TTL) {
+    return cachedTaxCodeId;
+  }
+
+  // Allow explicit override without any API call
+  if (process.env.QUICKBOOKS_TAX_CODE_ID) {
+    cachedTaxCodeId = String(process.env.QUICKBOOKS_TAX_CODE_ID);
+    taxCodeCachedAt = now;
+    return cachedTaxCodeId;
+  }
+
+  const preferred = (process.env.QUICKBOOKS_TAX_CODE_NAMES || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const listTaxCodes = () =>
+    new Promise((resolve, reject) => {
+      qbo.findTaxCodes({}, (err, data) => {
+        if (err) return reject(err);
+        const arr = data?.QueryResponse?.TaxCode || [];
+        resolve(arr);
+      });
+    });
+
+  try {
+    // List and filter in memory using findTaxCodes only
+    const all = await listTaxCodes();
+    const active = all.filter((t) => t?.Active !== false);
+
+    if (preferred.length > 0) {
+      const foundPref = active.find((t) => preferred.includes(t?.Name));
+      if (foundPref) {
+        cachedTaxCodeId = String(foundPref.Id);
+        taxCodeCachedAt = now;
+        return cachedTaxCodeId;
+      }
+    }
+
+    // Try to pick common Canadian codes
+    const candidates = ["HST ON", "HST", "GST/HST", "GST", "TAX", "QST", "PST"];
+    const found = active.find((t) => candidates.includes(t?.Name));
+    if (found) {
+      cachedTaxCodeId = String(found.Id);
+      taxCodeCachedAt = now;
+      return cachedTaxCodeId;
+    }
+
+    // If none matched but we have any, pick the first active one
+    if (active.length > 0) {
+      cachedTaxCodeId = String(active[0].Id);
+      taxCodeCachedAt = now;
+      return cachedTaxCodeId;
+    }
+
+    // If still nothing, throw instructive error
+    throw new Error(
+      "No suitable TaxCode found. Set env QUICKBOOKS_TAX_CODE_NAMES to a valid TaxCode name (e.g., 'HST ON')."
+    );
+  } catch (e) {
+    const info = parseQboError(e);
+    logMessage("ERROR", "❌ Failed to retrieve TaxCode from QuickBooks", {
+      message: info.message,
+      detail: info.detail,
+    });
+    throw e;
+  }
 }
 
 /**
@@ -628,6 +708,20 @@ async function createInvoice(
   const qty = 1;
   const unitPrice = amount; // Keep simple: one line with qty 1 at full amount
 
+  // Attempt to include a GST/HST TaxCode if company requires it
+  let taxCodeId = null;
+  try {
+    taxCodeId = await getPreferredTaxCodeId(qbo);
+    logMessage("DEBUG", "Using TaxCodeId for invoice", taxCodeId);
+  } catch (e) {
+    // If TaxCode retrieval fails, proceed without it; QBO may still accept for some regions
+    logMessage(
+      "WARN",
+      "Could not determine TaxCodeId automatically; proceeding without TaxCodeRef",
+      e?.message || e
+    );
+  }
+
   const invoiceData = {
     Line: [
       {
@@ -637,13 +731,23 @@ async function createInvoice(
           ItemRef: { value: itemId },
           Qty: qty,
           UnitPrice: unitPrice,
+          ...(taxCodeId ? { TaxCodeRef: { value: taxCodeId } } : {}),
         },
       },
     ],
     CustomerRef: { value: customerId },
+    ...(taxCodeId
+      ? {
+          TxnTaxDetail: {
+            TxnTaxCodeRef: { value: taxCodeId },
+          },
+          GlobalTaxCalculation:
+            process.env.QUICKBOOKS_TAX_CALCULATION || "TaxExcluded",
+        }
+      : {}),
   };
 
-  console.log("Creating QuickBooks invoice with data:", invoiceData);
+  logMessage("INFO", "Creating QuickBooks invoice with data:", invoiceData);
 
   const invoiceResponse = await new Promise((resolve, reject) => {
     qbo.createInvoice(invoiceData, (err, data) => {
@@ -657,7 +761,9 @@ async function createInvoice(
           detail: info.detail,
           element: info.element,
         });
+
         logMessage("DEBUG", "Invoice payload that failed", invoiceData);
+
         return reject(
           new Error(
             info.message || info.detail || "QuickBooks createInvoice failed"
