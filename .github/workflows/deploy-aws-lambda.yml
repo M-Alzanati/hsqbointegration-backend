@@ -134,7 +134,14 @@ jobs:
             echo "sg_id=$SG" >> $GITHUB_OUTPUT
             echo "master=$MASTER" >> $GITHUB_OUTPUT
           fi
-
+          if [ "$EXISTS" = false ]; then
+            echo "No existing DocDB cluster found with identifier $CLUSTER_ID."
+          else
+            echo "Existing DocDB cluster found: $CLUSTER_ID"
+            echo "endpoint=$ENDPOINT" >> $GITHUB_OUTPUT
+            echo "sg_id=$SG" >> $GITHUB_OUTPUT
+            echo "master=$MASTER" >> $GITHUB_OUTPUT
+          fi
       - name: Deploy Data stack (DocumentDB)
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
