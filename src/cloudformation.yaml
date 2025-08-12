@@ -21,6 +21,17 @@ Parameters:
     Type: String
     Default: hubspot-quickbooks-backend.zip
     Description: S3 key for the Lambda deployment package
+  StageName:
+    Type: String
+    Default: prod
+    Description: API Gateway stage name
+  QuickBooksEnvironment:
+    Type: String
+    Default: production
+    AllowedValues:
+      - production
+      - sandbox
+    Description: QuickBooks environment (production or sandbox)
   DocDBMasterUsername:
     Type: String
     Default: hubspot_quickbooks_user
@@ -37,6 +48,9 @@ Parameters:
     Type: String
     Default: tls=true&retryWrites=false&authMechanism=SCRAM-SHA-1
     Description: Connection options for DocumentDB
+
+Conditions:
+  IsProd: !Equals [!Ref QuickBooksEnvironment, production]
 
 Resources:
   VPC:
@@ -176,33 +190,6 @@ Resources:
           ]
         }
 
-  LambdaExecutionRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
-        - arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess
-      Policies:
-        - PolicyName: LambdaVPCAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - ec2:CreateNetworkInterface
-                  - ec2:DescribeNetworkInterfaces
-                  - ec2:DeleteNetworkInterface
-                  - ec2:AssignPrivateIpAddresses
-                  - ec2:UnassignPrivateIpAddresses
-                Resource: "*"
 
   HubspotQuickbookApiLambdaRole:
     Type: AWS::IAM::Role
@@ -314,10 +301,10 @@ Resources:
           DOCDB_PASSWORD_SECRET_NAME: docdb/password
           QUICKBOOKS_CLIENT_ID_SECRET_NAME: quickbooks/client/id
           QUICKBOOKS_CLIENT_KEY_SECRET_NAME: quickbooks/client/secret
-          QUICKBOOKS_REDIRECT_URI: !Sub "https://${HubspotQuickbookApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod/quickbooks/callback"
-          QUICKBOOKS_APP_URL: https://app.qbo.intuit.com/app/invoice
+          QUICKBOOKS_REDIRECT_URI: !Sub "https://${HubspotQuickbookApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/quickbooks/callback"
+          QUICKBOOKS_APP_URL: !If [IsProd, "https://app.qbo.intuit.com/app/invoice", "https://sandbox.qbo.intuit.com/app/invoice"]
           HUBSPOT_API_KEY_SECRET_NAME: hubspot/api/key
-          QUICKBOOKS_ENVIRONMENT: production
+          QUICKBOOKS_ENVIRONMENT: !Ref QuickBooksEnvironment
 
   LambdaApiInvokePermission:
     Type: AWS::Lambda::Permission
@@ -352,7 +339,7 @@ Resources:
     Type: AWS::ApiGatewayV2::Stage
     Properties:
       ApiId: !Ref HubspotQuickbookApiGateway
-      StageName: prod
+  StageName: !Ref StageName
       AutoDeploy: true
       AccessLogSettings:
         DestinationArn: !GetAtt HubspotQuickbookApiLogGroupHttpRequest.Arn
@@ -361,9 +348,24 @@ Resources:
         DetailedMetricsEnabled: true
 
 Outputs:
+  VpcId:
+    Description: VPC ID
+    Value: !Ref VPC
+  PrivateSubnetIds:
+    Description: Comma-delimited list of private subnet IDs
+    Value: !Join [",", [!Ref PrivateSubnet1, !Ref PrivateSubnet2]]
+  LambdaSecurityGroupId:
+    Description: Lambda Security Group ID
+    Value: !Ref LambdaSecurityGroup
   ApiEndpoint:
     Description: "API Gateway endpoint"
-    Value: !Sub "https://${HubspotQuickbookApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod/"
+    Value: !Sub "https://${HubspotQuickbookApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/"
   LambdaFunctionArn:
     Description: ARN of the Lambda function
     Value: !GetAtt HubspotQuickbookApiLambda.Arn
+  DocDBClusterEndpoint:
+    Description: DocumentDB cluster endpoint
+    Value: !GetAtt DocDBCluster.Endpoint
+  DocDBClusterIdentifierOut:
+    Description: DocumentDB cluster identifier
+    Value: !Ref DocDBClusterIdentifier

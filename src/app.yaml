@@ -1,0 +1,184 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: App stack (Lambda + API Gateway) for HubSpot-QuickBooks backend
+
+Parameters:
+  LambdaDeploymentBucket:
+    Type: String
+  LambdaS3Key:
+    Type: String
+    Default: hubspot-quickbooks-backend.zip
+  PrivateSubnet1Id:
+    Type: String
+  PrivateSubnet2Id:
+    Type: String
+  LambdaSecurityGroupId:
+    Type: String
+  DocDBMasterUsername:
+    Type: String
+    Default: hubspot_quickbooks_user
+  DocDBClusterEndpoint:
+    Type: String
+  DocDBClusterIdentifier:
+    Type: String
+  DocDBOptions:
+    Type: String
+    Default: tls=true&retryWrites=false&authMechanism=SCRAM-SHA-1
+  StageName:
+    Type: String
+    Default: prod
+  QuickBooksEnvironment:
+    Type: String
+    Default: production
+    AllowedValues:
+      - production
+      - sandbox
+
+Resources:
+  HubspotQuickbookApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/HubspotQuickbookApiLambda
+      RetentionInDays: 14
+
+  HubspotQuickbookApiLogGroupHttpRequest:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /quickbooks-hubspot/http-requests
+      RetentionInDays: 14
+
+  HubspotQuickbookApiLogGroupHttpRequestPolicy:
+    Type: AWS::Logs::ResourcePolicy
+    Properties:
+      PolicyName: ApiGatewayHttpRequestLogGroupPolicy
+      PolicyDocument: !Sub |
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": { "Service": "apigateway.amazonaws.com" },
+              "Action": [
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+              ],
+              "Resource": "${HubspotQuickbookApiLogGroupHttpRequest.Arn}"
+            }
+          ]
+        }
+
+  HubspotQuickbookApiLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+        - arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess
+      Policies:
+        - PolicyName: LambdaSecretsAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                Resource: "*"
+
+  HubspotQuickbookApiLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: HubspotQuickbookApiLambda
+      Handler: lambda.handler
+      Role: !GetAtt HubspotQuickbookApiLambdaRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaDeploymentBucket
+        S3Key: !Ref LambdaS3Key
+      Runtime: nodejs22.x
+      MemorySize: 512
+      Timeout: 60
+      VpcConfig:
+        SubnetIds:
+          - !Ref PrivateSubnet1Id
+          - !Ref PrivateSubnet2Id
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroupId
+      Environment:
+        Variables:
+          DOCDB_USERNAME: !Ref DocDBMasterUsername
+          DOCDB_ENDPOINT: !Ref DocDBClusterEndpoint
+          DOCDB_DBNAME: !Ref DocDBClusterIdentifier
+          DOCDB_OPTIONS: !Ref DocDBOptions
+          API_KEY_SECRET_NAME: service/api/key
+          DOCDB_PASSWORD_SECRET_NAME: docdb/password
+          QUICKBOOKS_CLIENT_ID_SECRET_NAME: quickbooks/client/id
+          QUICKBOOKS_CLIENT_KEY_SECRET_NAME: quickbooks/client/secret
+          QUICKBOOKS_REDIRECT_URI: !Sub "https://${HubspotQuickbookApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/quickbooks/callback"
+          QUICKBOOKS_APP_URL: !If [IsProd, "https://app.qbo.intuit.com/app/invoice", "https://sandbox.qbo.intuit.com/app/invoice"]
+          HUBSPOT_API_KEY_SECRET_NAME: hubspot/api/key
+          QUICKBOOKS_ENVIRONMENT: !Ref QuickBooksEnvironment
+
+  LambdaApiInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref HubspotQuickbookApiLambda
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HubspotQuickbookApiGateway}/*/*/*"
+
+  HubspotQuickbookApiGateway:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: HubspotQuickbookApi
+      ProtocolType: HTTP
+
+  HubspotQuickbookApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HubspotQuickbookApiGateway
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt HubspotQuickbookApiLambda.Arn
+      PayloadFormatVersion: "2.0"
+
+  HubspotQuickbookApiRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HubspotQuickbookApiGateway
+      RouteKey: "ANY /{proxy+}"
+      Target: !Join ["/", ["integrations", !Ref HubspotQuickbookApiIntegration]]
+
+  HubspotQuickbookApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HubspotQuickbookApiGateway
+      StageName: !Ref StageName
+      AutoDeploy: true
+      AccessLogSettings:
+        DestinationArn: !GetAtt HubspotQuickbookApiLogGroupHttpRequest.Arn
+        Format: '{"requestId":"$context.requestId","ip":"$context.identity.sourceIp","requestTime":"$context.requestTime","httpMethod":"$context.httpMethod","routeKey":"$context.routeKey","status":"$context.status","protocol":"$context.protocol","responseLength":"$context.responseLength","integrationErrorMessage":"$context.integrationErrorMessage"}'
+      DefaultRouteSettings:
+        DetailedMetricsEnabled: true
+
+Conditions:
+  IsProd: !Equals [!Ref QuickBooksEnvironment, production]
+
+Outputs:
+  ApiEndpoint:
+    Description: API endpoint
+    Value: !Sub "https://${HubspotQuickbookApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/"
+  LambdaFunctionArn:
+    Description: ARN of the Lambda function
+    Value: !GetAtt HubspotQuickbookApiLambda.Arn

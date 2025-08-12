@@ -11,6 +11,18 @@ on:
         description: "Bootstrap SecretsManager secrets stack (true only for first-time)"
         required: false
         default: "false"
+      STAGE_NAME:
+        description: "API Gateway stage name (e.g., prod, dev)"
+        required: false
+        default: "prod"
+      QBO_ENV:
+        description: "QuickBooks environment (production|sandbox)"
+        required: false
+        default: "production"
+      DOCDB_CLUSTER_IDENTIFIER:
+        description: "Desired DocDB cluster identifier (used for existence check)"
+        required: false
+        default: "quickbooks-hubspot-cluster"
 jobs:
   deploy:
     name: Deploy CloudFormation and Lambda
@@ -80,17 +92,120 @@ jobs:
       - name: Upload Lambda zip to S3
         run: aws s3 cp src/hubspot-quickbooks-backend.zip s3://${{ steps.get_bucket.outputs.bucket_name }}/hubspot-quickbooks-backend.zip
 
-      - name: Deploy CloudFormation stack (main)
+      - name: Deploy Network stack
         run: >
           aws cloudformation deploy \
-            --stack-name hubspot-quickbooks-backend \
-            --template-file src/cloudformation.yaml \
-            --capabilities CAPABILITY_NAMED_IAM \
-            --parameter-overrides LambdaS3Key=hubspot-quickbooks-backend.zip LambdaDeploymentBucket=${{ steps.get_bucket.outputs.bucket_name }}
+            --stack-name hubspot-quickbooks-network \
+            --template-file src/network.yaml \
+            --capabilities CAPABILITY_NAMED_IAM
 
-      - name: Update Lambda code
-        run: >
-          aws lambda update-function-code \
-            --function-name HubspotQuickbookApiLambda \
-            --s3-bucket ${{ steps.get_bucket.outputs.bucket_name }} \
-            --s3-key hubspot-quickbooks-backend.zip
+      - name: Get Network outputs
+        id: get_network
+        run: |
+          set -euo pipefail
+          STACK=hubspot-quickbooks-network
+          VPC_ID=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='VpcId'].OutputValue" --output text)
+          PRIV1=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='PrivateSubnet1Id'].OutputValue" --output text)
+          PRIV2=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='PrivateSubnet2Id'].OutputValue" --output text)
+          LAMBDA_SG=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='LambdaSecurityGroupId'].OutputValue" --output text)
+          echo "vpc_id=$VPC_ID" >> $GITHUB_OUTPUT
+          echo "private_subnet1_id=$PRIV1" >> $GITHUB_OUTPUT
+          echo "private_subnet2_id=$PRIV2" >> $GITHUB_OUTPUT
+          echo "lambda_sg_id=$LAMBDA_SG" >> $GITHUB_OUTPUT
+
+      - name: Detect existing DocDB cluster
+        id: detect_docdb
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          CLUSTER_ID: ${{ inputs.DOCDB_CLUSTER_IDENTIFIER }}
+        run: |
+          set -euo pipefail
+          EXISTS=false
+          if aws docdb describe-db-clusters --region "$AWS_REGION" --db-cluster-identifier "$CLUSTER_ID" >/tmp/docdb.json 2>/dev/null; then
+            EXISTS=true
+            ENDPOINT=$(jq -r '.DBClusters[0].Endpoint' /tmp/docdb.json)
+            SG=$(jq -r '.DBClusters[0].VpcSecurityGroups[0].VpcSecurityGroupId' /tmp/docdb.json)
+            MASTER=$(jq -r '.DBClusters[0].MasterUsername' /tmp/docdb.json)
+          fi
+          echo "exists=$EXISTS" >> $GITHUB_OUTPUT
+          echo "cluster_id=$CLUSTER_ID" >> $GITHUB_OUTPUT
+          if [ "$EXISTS" = true ]; then
+            echo "endpoint=$ENDPOINT" >> $GITHUB_OUTPUT
+            echo "sg_id=$SG" >> $GITHUB_OUTPUT
+            echo "master=$MASTER" >> $GITHUB_OUTPUT
+          fi
+          if [ "$EXISTS" = false ]; then
+            echo "No existing DocDB cluster found with identifier $CLUSTER_ID."
+          else
+            echo "Existing DocDB cluster found: $CLUSTER_ID"
+            echo "endpoint=$ENDPOINT" >> $GITHUB_OUTPUT
+            echo "sg_id=$SG" >> $GITHUB_OUTPUT
+            echo "master=$MASTER" >> $GITHUB_OUTPUT
+          fi
+      - name: Deploy Data stack (DocumentDB)
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          VPC_ID: ${{ steps.get_network.outputs.vpc_id }}
+          PRIV1: ${{ steps.get_network.outputs.private_subnet1_id }}
+          PRIV2: ${{ steps.get_network.outputs.private_subnet2_id }}
+          LAMBDA_SG: ${{ steps.get_network.outputs.lambda_sg_id }}
+          DOCDB_EXISTS: ${{ steps.detect_docdb.outputs.exists }}
+          EXISTING_CLUSTER_ID: ${{ steps.detect_docdb.outputs.cluster_id }}
+          EXISTING_ENDPOINT: ${{ steps.detect_docdb.outputs.endpoint }}
+          EXISTING_SG: ${{ steps.detect_docdb.outputs.sg_id }}
+        run: |
+          set -euo pipefail
+          PARAMS="VpcId=$VPC_ID PrivateSubnet1Id=$PRIV1 PrivateSubnet2Id=$PRIV2 LambdaSecurityGroupId=$LAMBDA_SG"
+          if [ "${DOCDB_EXISTS}" = "true" ]; then
+            PARAMS="$PARAMS UseExistingDocDBCluster=true ExistingDocDBClusterIdentifier=$EXISTING_CLUSTER_ID ExistingDocDBClusterEndpoint=$EXISTING_ENDPOINT ExistingDocDBSecurityGroupId=$EXISTING_SG"
+          else
+            PARAMS="$PARAMS UseExistingDocDBCluster=false DocDBClusterIdentifier=${{ inputs.DOCDB_CLUSTER_IDENTIFIER }}"
+          fi
+          aws cloudformation deploy \
+            --region "$AWS_REGION" \
+            --stack-name hubspot-quickbooks-data \
+            --template-file src/data.yaml \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides $PARAMS
+
+      - name: Get Data outputs
+        id: get_data
+        run: |
+          set -euo pipefail
+          STACK=hubspot-quickbooks-data
+          DOCDB_ENDPOINT=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='DocDBClusterEndpoint'].OutputValue" --output text)
+          DOCDB_ID=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='DocDBClusterIdentifierOut'].OutputValue" --output text)
+          echo "docdb_endpoint=$DOCDB_ENDPOINT" >> $GITHUB_OUTPUT
+          echo "docdb_cluster_id=$DOCDB_ID" >> $GITHUB_OUTPUT
+
+      - name: Deploy App stack (Lambda + API)
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          BUCKET: ${{ steps.get_bucket.outputs.bucket_name }}
+          PRIV1: ${{ steps.get_network.outputs.private_subnet1_id }}
+          PRIV2: ${{ steps.get_network.outputs.private_subnet2_id }}
+          LAMBDA_SG: ${{ steps.get_network.outputs.lambda_sg_id }}
+          DOCDB_ENDPOINT: ${{ steps.get_data.outputs.docdb_endpoint }}
+          DOCDB_ID: ${{ steps.get_data.outputs.docdb_cluster_id }}
+          MASTER_USER: ${{ steps.detect_docdb.outputs.master }}
+          STAGE: ${{ inputs.STAGE_NAME }}
+          QBO_ENV: ${{ inputs.QBO_ENV }}
+        run: |
+          set -euo pipefail
+          DOCDB_MASTER_USERNAME=${MASTER_USER:-hubspot_quickbooks_user}
+          aws cloudformation deploy \
+            --region "$AWS_REGION" \
+            --stack-name hubspot-quickbooks-app \
+            --template-file src/app.yaml \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides \
+              LambdaDeploymentBucket=$BUCKET \
+              LambdaS3Key=hubspot-quickbooks-backend.zip \
+              PrivateSubnet1Id=$PRIV1 \
+              PrivateSubnet2Id=$PRIV2 \
+              LambdaSecurityGroupId=$LAMBDA_SG \
+              DocDBClusterEndpoint=$DOCDB_ENDPOINT \
+              DocDBClusterIdentifier=$DOCDB_ID \
+              DocDBMasterUsername=$DOCDB_MASTER_USERNAME \
+              StageName=$STAGE \
+              QuickBooksEnvironment=$QBO_ENV
