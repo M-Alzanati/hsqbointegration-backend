@@ -66,6 +66,7 @@ async function ensureQuickBooksCreds() {
   cachedQBClientSecret = secret || cachedQBClientSecret;
   credsLoadedAt = now;
 }
+
 async function getOAuthClient() {
   await ensureQuickBooksCreds();
 
