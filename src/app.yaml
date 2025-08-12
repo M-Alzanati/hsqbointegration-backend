@@ -43,13 +43,13 @@ Resources:
   HubspotQuickbookApiLogGroupHttpRequest:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: /quickbooks-hubspot/http-requests
+      LogGroupName: !Sub "/quickbooks-hubspot/${StageName}/http-requests"
       RetentionInDays: 14
 
   HubspotQuickbookApiLogGroupHttpRequestPolicy:
     Type: AWS::Logs::ResourcePolicy
     Properties:
-      PolicyName: ApiGatewayHttpRequestLogGroupPolicy
+      PolicyName: !Sub "ApiGatewayHttpRequestLogGroupPolicy-${StageName}"
       PolicyDocument: !Sub |
         {
           "Version": "2012-10-17",
@@ -61,7 +61,7 @@ Resources:
                 "logs:CreateLogStream",
                 "logs:PutLogEvents"
               ],
-              "Resource": "${HubspotQuickbookApiLogGroupHttpRequest.Arn}"
+              "Resource": "${HubspotQuickbookApiLogGroupHttpRequest.Arn}:*"
             }
           ]
         }
@@ -127,7 +127,12 @@ Resources:
           QUICKBOOKS_CLIENT_ID_SECRET_NAME: quickbooks/client/id
           QUICKBOOKS_CLIENT_KEY_SECRET_NAME: quickbooks/client/secret
           QUICKBOOKS_REDIRECT_URI: !Sub "https://${HubspotQuickbookApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/quickbooks/callback"
-          QUICKBOOKS_APP_URL: !If [IsProd, "https://app.qbo.intuit.com/app/invoice", "https://sandbox.qbo.intuit.com/app/invoice"]
+          QUICKBOOKS_APP_URL:
+            !If [
+              IsProd,
+              "https://app.qbo.intuit.com/app/invoice",
+              "https://sandbox.qbo.intuit.com/app/invoice",
+            ]
           HUBSPOT_API_KEY_SECRET_NAME: hubspot/api/key
           QUICKBOOKS_ENVIRONMENT: !Ref QuickBooksEnvironment
 
