@@ -11,6 +11,14 @@ on:
         description: "Bootstrap SecretsManager secrets stack (true only for first-time)"
         required: false
         default: "false"
+      STAGE_NAME:
+        description: "API Gateway stage name (e.g., prod, dev)"
+        required: false
+        default: "prod"
+      QBO_ENV:
+        description: "QuickBooks environment (production|sandbox)"
+        required: false
+        default: "production"
 jobs:
   deploy:
     name: Deploy CloudFormation and Lambda
@@ -86,7 +94,7 @@ jobs:
             --stack-name hubspot-quickbooks-backend \
             --template-file src/cloudformation.yaml \
             --capabilities CAPABILITY_NAMED_IAM \
-            --parameter-overrides LambdaS3Key=hubspot-quickbooks-backend.zip LambdaDeploymentBucket=${{ steps.get_bucket.outputs.bucket_name }}
+            --parameter-overrides LambdaS3Key=hubspot-quickbooks-backend.zip LambdaDeploymentBucket=${{ steps.get_bucket.outputs.bucket_name }} StageName=${{ inputs.STAGE_NAME }} QuickBooksEnvironment=${{ inputs.QBO_ENV }}
 
       - name: Update Lambda code
         run: >
