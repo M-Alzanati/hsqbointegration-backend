@@ -11,6 +11,11 @@ Parameters:
     Type: String
   LambdaSecurityGroupId:
     Type: String
+  UseExistingDocDBCluster:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Set to "true" to reuse an existing DocumentDB cluster instead of creating a new one
   DocDBMasterUsername:
     Type: String
     Default: hubspot_quickbooks_user
@@ -20,10 +25,23 @@ Parameters:
   DocDBClusterIdentifier:
     Type: String
     Default: quickbooks-hubspot-cluster
+  ExistingDocDBClusterIdentifier:
+    Type: String
+    Default: ""
+    Description: Identifier of an existing DocumentDB cluster (required when UseExistingDocDBCluster=true)
+  ExistingDocDBClusterEndpoint:
+    Type: String
+    Default: ""
+    Description: Endpoint of an existing DocumentDB cluster (required when UseExistingDocDBCluster=true)
+  ExistingDocDBSecurityGroupId:
+    Type: String
+    Default: ""
+    Description: Security Group ID attached to the existing DocumentDB cluster (to allow Lambda ingress when UseExistingDocDBCluster=true)
 
 Resources:
   DocDBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
+    Condition: CreateNewDocDB
     Properties:
       GroupDescription: Allow DocumentDB access from Lambda
       VpcId: !Ref VpcId
@@ -35,6 +53,7 @@ Resources:
 
   DocDBSubnetGroup:
     Type: AWS::DocDB::DBSubnetGroup
+    Condition: CreateNewDocDB
     Properties:
       DBSubnetGroupDescription: Subnets for DocumentDB
       SubnetIds:
@@ -43,6 +62,7 @@ Resources:
 
   DocDBCluster:
     Type: AWS::DocDB::DBCluster
+    Condition: CreateNewDocDB
     Properties:
       MasterUsername: !Ref DocDBMasterUsername
       MasterUserPassword: !Sub "{{resolve:secretsmanager:docdb/password:SecretString:password}}"
@@ -59,12 +79,27 @@ Resources:
 
   DocDBInstance:
     Type: AWS::DocDB::DBInstance
+    Condition: CreateNewDocDB
     Properties:
       DBClusterIdentifier: !Ref DocDBCluster
       DBInstanceClass: !Ref DocDBInstanceClass
 
+  AllowLambdaToExistingDocDBIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: UseExistingDocDB
+    Properties:
+      GroupId: !Ref ExistingDocDBSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 27017
+      ToPort: 27017
+      SourceSecurityGroupId: !Ref LambdaSecurityGroupId
+
 Outputs:
   DocDBClusterEndpoint:
-    Value: !GetAtt DocDBCluster.Endpoint
+    Value: !If [UseExistingDocDB, !Ref ExistingDocDBClusterEndpoint, !GetAtt DocDBCluster.Endpoint]
   DocDBClusterIdentifierOut:
-    Value: !Ref DocDBClusterIdentifier
+    Value: !If [UseExistingDocDB, !Ref ExistingDocDBClusterIdentifier, !Ref DocDBClusterIdentifier]
+
+Conditions:
+  UseExistingDocDB: !Equals [!Ref UseExistingDocDBCluster, "true"]
+  CreateNewDocDB: !Equals [!Ref UseExistingDocDBCluster, "false"]
