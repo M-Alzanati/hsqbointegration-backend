@@ -88,17 +88,62 @@ jobs:
       - name: Upload Lambda zip to S3
         run: aws s3 cp src/hubspot-quickbooks-backend.zip s3://${{ steps.get_bucket.outputs.bucket_name }}/hubspot-quickbooks-backend.zip
 
-      - name: Deploy CloudFormation stack (main)
+      - name: Deploy Network stack
         run: >
           aws cloudformation deploy \
-            --stack-name hubspot-quickbooks-backend \
-            --template-file src/cloudformation.yaml \
-            --capabilities CAPABILITY_NAMED_IAM \
-            --parameter-overrides LambdaS3Key=hubspot-quickbooks-backend.zip LambdaDeploymentBucket=${{ steps.get_bucket.outputs.bucket_name }} StageName=${{ inputs.STAGE_NAME }} QuickBooksEnvironment=${{ inputs.QBO_ENV }}
+            --stack-name hubspot-quickbooks-network \
+            --template-file src/network.yaml \
+            --capabilities CAPABILITY_NAMED_IAM
 
-      - name: Update Lambda code
+      - name: Get Network outputs
+        id: get_network
+        run: |
+          set -euo pipefail
+          STACK=hubspot-quickbooks-network
+          VPC_ID=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='VpcId'].OutputValue" --output text)
+          PRIV1=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='PrivateSubnet1Id'].OutputValue" --output text)
+          PRIV2=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='PrivateSubnet2Id'].OutputValue" --output text)
+          LAMBDA_SG=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='LambdaSecurityGroupId'].OutputValue" --output text)
+          echo "vpc_id=$VPC_ID" >> $GITHUB_OUTPUT
+          echo "private_subnet1_id=$PRIV1" >> $GITHUB_OUTPUT
+          echo "private_subnet2_id=$PRIV2" >> $GITHUB_OUTPUT
+          echo "lambda_sg_id=$LAMBDA_SG" >> $GITHUB_OUTPUT
+
+      - name: Deploy Data stack (DocumentDB)
         run: >
-          aws lambda update-function-code \
-            --function-name HubspotQuickbookApiLambda \
-            --s3-bucket ${{ steps.get_bucket.outputs.bucket_name }} \
-            --s3-key hubspot-quickbooks-backend.zip
+          aws cloudformation deploy \
+            --stack-name hubspot-quickbooks-data \
+            --template-file src/data.yaml \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides \
+              VpcId=${{ steps.get_network.outputs.vpc_id }} \
+              PrivateSubnet1Id=${{ steps.get_network.outputs.private_subnet1_id }} \
+              PrivateSubnet2Id=${{ steps.get_network.outputs.private_subnet2_id }} \
+              LambdaSecurityGroupId=${{ steps.get_network.outputs.lambda_sg_id }}
+
+      - name: Get Data outputs
+        id: get_data
+        run: |
+          set -euo pipefail
+          STACK=hubspot-quickbooks-data
+          DOCDB_ENDPOINT=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='DocDBClusterEndpoint'].OutputValue" --output text)
+          DOCDB_ID=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='DocDBClusterIdentifierOut'].OutputValue" --output text)
+          echo "docdb_endpoint=$DOCDB_ENDPOINT" >> $GITHUB_OUTPUT
+          echo "docdb_cluster_id=$DOCDB_ID" >> $GITHUB_OUTPUT
+
+      - name: Deploy App stack (Lambda + API)
+        run: >
+          aws cloudformation deploy \
+            --stack-name hubspot-quickbooks-app \
+            --template-file src/app.yaml \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides \
+              LambdaDeploymentBucket=${{ steps.get_bucket.outputs.bucket_name }} \
+              LambdaS3Key=hubspot-quickbooks-backend.zip \
+              PrivateSubnet1Id=${{ steps.get_network.outputs.private_subnet1_id }} \
+              PrivateSubnet2Id=${{ steps.get_network.outputs.private_subnet2_id }} \
+              LambdaSecurityGroupId=${{ steps.get_network.outputs.lambda_sg_id }} \
+              DocDBClusterEndpoint=${{ steps.get_data.outputs.docdb_endpoint }} \
+              DocDBClusterIdentifier=${{ steps.get_data.outputs.docdb_cluster_id }} \
+              StageName=${{ inputs.STAGE_NAME }} \
+              QuickBooksEnvironment=${{ inputs.QBO_ENV }}

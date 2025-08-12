@@ -1,0 +1,70 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Data stack (DocumentDB) for HubSpot-QuickBooks backend
+
+Parameters:
+  VpcId:
+    Type: String
+    Description: VPC ID where DocumentDB will be deployed
+  PrivateSubnet1Id:
+    Type: String
+  PrivateSubnet2Id:
+    Type: String
+  LambdaSecurityGroupId:
+    Type: String
+  DocDBMasterUsername:
+    Type: String
+    Default: hubspot_quickbooks_user
+  DocDBInstanceClass:
+    Type: String
+    Default: db.t3.medium
+  DocDBClusterIdentifier:
+    Type: String
+    Default: quickbooks-hubspot-cluster
+
+Resources:
+  DocDBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow DocumentDB access from Lambda
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 27017
+          ToPort: 27017
+          SourceSecurityGroupId: !Ref LambdaSecurityGroupId
+
+  DocDBSubnetGroup:
+    Type: AWS::DocDB::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnets for DocumentDB
+      SubnetIds:
+        - !Ref PrivateSubnet1Id
+        - !Ref PrivateSubnet2Id
+
+  DocDBCluster:
+    Type: AWS::DocDB::DBCluster
+    Properties:
+      MasterUsername: !Ref DocDBMasterUsername
+      MasterUserPassword: !Sub "{{resolve:secretsmanager:docdb/password:SecretString:password}}"
+      DBClusterIdentifier: !Ref DocDBClusterIdentifier
+      BackupRetentionPeriod: 7
+      PreferredBackupWindow: 07:00-09:00
+      VpcSecurityGroupIds:
+        - !Ref DocDBSecurityGroup
+      DBSubnetGroupName: !Ref DocDBSubnetGroup
+      EngineVersion: 5.0
+      EnableCloudwatchLogsExports:
+        - audit
+        - profiler
+
+  DocDBInstance:
+    Type: AWS::DocDB::DBInstance
+    Properties:
+      DBClusterIdentifier: !Ref DocDBCluster
+      DBInstanceClass: !Ref DocDBInstanceClass
+
+Outputs:
+  DocDBClusterEndpoint:
+    Value: !GetAtt DocDBCluster.Endpoint
+  DocDBClusterIdentifierOut:
+    Value: !Ref DocDBClusterIdentifier
