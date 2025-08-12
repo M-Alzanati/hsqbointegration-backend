@@ -37,8 +37,8 @@ Resources:
   HubspotQuickbookApiLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: /aws/lambda/HubspotQuickbookApiLambda
-      RetentionInDays: 14
+    LogGroupName: !Sub "/aws/lambda/HubspotQuickbookApiLambda-${StageName}"
+    RetentionInDays: 14
 
   HubspotQuickbookApiLogGroupHttpRequest:
     Type: AWS::Logs::LogGroup
@@ -101,7 +101,7 @@ Resources:
   HubspotQuickbookApiLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: HubspotQuickbookApiLambda
+      FunctionName: !Sub "HubspotQuickbookApiLambda-${StageName}"
       Handler: lambda.handler
       Role: !GetAtt HubspotQuickbookApiLambdaRole.Arn
       Code:
