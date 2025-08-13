@@ -2,6 +2,9 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: Data Attach stack (attaches Lambda ingress to existing DocumentDB)
 
 Parameters:
+  Env:
+    Type: String
+    Default: prod
   ExistingDocDBClusterIdentifier:
     Type: String
   ExistingDocDBClusterEndpoint:
@@ -17,7 +20,8 @@ Resources:
       IpProtocol: tcp
       FromPort: 27017
       ToPort: 27017
-      SourceSecurityGroupId: !ImportValue 'hsqbo:network:LambdaSecurityGroupId'
+      SourceSecurityGroupId:
+        Fn::ImportValue: !Sub 'hsqbo:${Env}:network:LambdaSecurityGroupId'
 
 Outputs:
   DocDBClusterEndpoint:

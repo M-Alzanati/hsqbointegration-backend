@@ -2,6 +2,9 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: Network stack (VPC, subnets, routes, NAT, SGs) for HubSpot-QuickBooks backend
 
 Parameters:
+  Env:
+    Type: String
+    Default: prod
   VpcCidr:
     Type: String
     Default: 10.0.0.0/16
@@ -163,16 +166,16 @@ Outputs:
   VpcId:
     Value: !If [UseExisting, !Ref ExistingVpcId, !Ref VPC]
     Export:
-      Name: hsqbo:network:VpcId
+      Name: !Sub "hsqbo:${Env}:network:VpcId"
   PrivateSubnet1Id:
     Value: !If [UseExisting, !Ref ExistingPrivateSubnet1Id, !Ref PrivateSubnet1]
     Export:
-      Name: hsqbo:network:PrivateSubnet1Id
+      Name: !Sub "hsqbo:${Env}:network:PrivateSubnet1Id"
   PrivateSubnet2Id:
     Value: !If [UseExisting, !Ref ExistingPrivateSubnet2Id, !Ref PrivateSubnet2]
     Export:
-      Name: hsqbo:network:PrivateSubnet2Id
+      Name: !Sub "hsqbo:${Env}:network:PrivateSubnet2Id"
   LambdaSecurityGroupId:
     Value: !Ref LambdaSecurityGroup
     Export:
-      Name: hsqbo:network:LambdaSecurityGroupId
+      Name: !Sub "hsqbo:${Env}:network:LambdaSecurityGroupId"

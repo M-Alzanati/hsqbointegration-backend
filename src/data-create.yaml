@@ -2,6 +2,9 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: Data Create stack (creates DocumentDB) for HubSpot-QuickBooks backend
 
 Parameters:
+  Env:
+    Type: String
+    Default: prod
   DocDBMasterUsername:
     Type: String
     Default: hubspot_quickbooks_user
@@ -17,20 +20,22 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Allow DocumentDB access from Lambda
-      VpcId: !ImportValue 'hsqbo:network:VpcId'
+      VpcId:
+        Fn::ImportValue: !Sub 'hsqbo:${Env}:network:VpcId'
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 27017
           ToPort: 27017
-          SourceSecurityGroupId: !ImportValue 'hsqbo:network:LambdaSecurityGroupId'
+          SourceSecurityGroupId:
+            Fn::ImportValue: !Sub 'hsqbo:${Env}:network:LambdaSecurityGroupId'
 
   DocDBSubnetGroup:
     Type: AWS::DocDB::DBSubnetGroup
     Properties:
       DBSubnetGroupDescription: Subnets for DocumentDB
       SubnetIds:
-        - !ImportValue 'hsqbo:network:PrivateSubnet1Id'
-        - !ImportValue 'hsqbo:network:PrivateSubnet2Id'
+        - Fn::ImportValue: !Sub 'hsqbo:${Env}:network:PrivateSubnet1Id'
+        - Fn::ImportValue: !Sub 'hsqbo:${Env}:network:PrivateSubnet2Id'
 
   DocDBCluster:
     Type: AWS::DocDB::DBCluster
@@ -52,6 +57,8 @@ Resources:
 
   DocDBInstance:
     Type: AWS::DocDB::DBInstance
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       DBClusterIdentifier: !Ref DocDBCluster
       DBInstanceClass: !Ref DocDBInstanceClass

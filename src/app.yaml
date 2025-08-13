@@ -2,6 +2,9 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: App stack (Lambda + API Gateway) for HubSpot-QuickBooks backend
 
 Parameters:
+  Env:
+    Type: String
+    Default: prod
   LambdaDeploymentBucket:
     Type: String
   LambdaS3Key:
@@ -106,10 +109,10 @@ Resources:
       Timeout: 60
       VpcConfig:
         SubnetIds:
-          - !ImportValue hsqbo:network:PrivateSubnet1Id
-          - !ImportValue hsqbo:network:PrivateSubnet2Id
+          - Fn::ImportValue: !Sub 'hsqbo:${Env}:network:PrivateSubnet1Id'
+          - Fn::ImportValue: !Sub 'hsqbo:${Env}:network:PrivateSubnet2Id'
         SecurityGroupIds:
-          - !ImportValue hsqbo:network:LambdaSecurityGroupId
+          - Fn::ImportValue: !Sub 'hsqbo:${Env}:network:LambdaSecurityGroupId'
       Environment:
         Variables:
           DOCDB_USERNAME: !Ref DocDBMasterUsername
