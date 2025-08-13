@@ -79,3 +79,16 @@ exports.refreshToken = async (req, res) => {
     );
   }
 };
+
+exports.invalidateToken = async (req, res) => {
+  const { mode } = req.query; // expire | refreshNow | revoke
+  try {
+    const result = await quickbooksService.invalidateGlobalToken(mode || "expire");
+    if (result.success) {
+      return successResponse(res, result, `✅ Token invalidation succeeded (${result.mode || mode || 'expire'})`);
+    }
+    return errorResponse(res, result.message || "Not found", "❌ Failed to invalidate token", result.status || 400);
+  } catch (e) {
+    return errorResponse(res, e.message, "❌ Failed to invalidate token", 500);
+  }
+};

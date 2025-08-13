@@ -47,6 +47,61 @@ async function upsertGlobalToken(db, tokenObj) {
   return payload;
 }
 
+/**
+ * Invalidate the global QuickBooks token.
+ * Modes:
+ *  - expire (default): mark access token as expired to force a refresh on next use
+ *  - refreshNow: immediately refresh using the stored refresh token
+ *  - revoke: remove access and refresh tokens (requires re-auth)
+ */
+async function invalidateGlobalToken(mode = "expire") {
+  const db = getDB();
+  const tokenDoc = await getGlobalTokenDoc(db);
+  if (!tokenDoc) {
+    logMessage("WARN", "⚠️ No global QuickBooks token found to invalidate");
+    return { success: false, status: 404, message: "No global token found" };
+  }
+
+  if (mode === "refreshNow") {
+    logMessage("INFO", "🔄 Forcing immediate refresh of global QuickBooks token");
+    const result = await module.exports.handleRefreshToken("");
+    return result;
+  }
+
+  if (mode === "revoke") {
+    logMessage("INFO", "⚠️ Revoking global QuickBooks tokens (requires re-auth)");
+    await db.collection(QB_TOKEN_COLLECTION).updateOne(
+      { key: GLOBAL_TOKEN_KEY },
+      {
+        $unset: {
+          accessToken: "",
+          access_token: "",
+          refreshToken: "",
+          refresh_token: "",
+          idToken: "",
+          tokenType: "",
+        },
+        $set: { updatedAt: new Date() },
+      }
+    );
+    return { success: true, mode };
+  }
+
+  // Default: expire access token to force refresh on next use
+  logMessage("INFO", "ℹ️ Expiring global QuickBooks access token to force refresh");
+  await db.collection(QB_TOKEN_COLLECTION).updateOne(
+    { key: GLOBAL_TOKEN_KEY },
+    {
+      $set: {
+        createdAt: new Date(0),
+        expiresIn: 0,
+        updatedAt: new Date(),
+      },
+    }
+  );
+  return { success: true, mode: "expire" };
+}
+
 function computeExpiresAt(createdAt, expiresInSec) {
   try {
     if (!createdAt || !expiresInSec) return 0;
@@ -1093,4 +1148,5 @@ module.exports = {
   isInvoiceValidInQuickBooks,
   verifyInvoicesInQuickBooks,
   getGlobalTokens,
+  invalidateGlobalToken,
 };

@@ -7,5 +7,6 @@ router.get("/checkConnection", quickbooksController.checkConnection);
 router.get("/authUrl", quickbooksController.createConnection);
 router.get("/callback", quickbooksController.quickBooksCallback);
 router.get("/refresh-token", quickbooksController.refreshToken);
+router.post("/invalidate-token", quickbooksController.invalidateToken);
 
 module.exports = router;
