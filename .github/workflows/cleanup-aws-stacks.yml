@@ -1,0 +1,147 @@
+name: Cleanup AWS resources
+
+on:
+  workflow_dispatch:
+    inputs:
+      AWS_REGION:
+        description: "AWS Region (default: us-east-1)"
+        required: false
+        default: "us-east-1"
+      DELETE_APP:
+        description: "Delete app stack (Lambda + API)"
+        required: false
+        default: "true"
+      DELETE_DATA:
+        description: "Delete data stacks (attach + create)"
+        required: false
+        default: "true"
+      DELETE_NETWORK:
+        description: "Delete network stack"
+        required: false
+        default: "true"
+      DELETE_DOCDB:
+        description: "Also delete the DocumentDB cluster (none|snapshot|delete)"
+        required: false
+        default: "none"
+      DOCDB_CLUSTER_IDENTIFIER:
+        description: "DocDB cluster identifier (optional; auto-detected if empty)"
+        required: false
+        default: ""
+
+jobs:
+  cleanup:
+    name: Cleanup CloudFormation stacks and optional DocDB
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ inputs.AWS_REGION }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Detect stacks and cluster id
+        id: detect
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          DOCDB_INPUT: ${{ inputs.DOCDB_CLUSTER_IDENTIFIER }}
+        run: |
+          set -euo pipefail
+          # Helper to check stack existence
+          stack_exists() { aws cloudformation describe-stacks --stack-name "$1" >/dev/null 2>&1; }
+
+          APP=false; DATA_ATTACH=false; DATA_CREATE=false; NETWORK=false
+          stack_exists hubspot-quickbooks-app && APP=true || true
+          stack_exists hubspot-quickbooks-data && DATA_ATTACH=true || true
+          stack_exists hubspot-quickbooks-data-create && DATA_CREATE=true || true
+          stack_exists hubspot-quickbooks-network && NETWORK=true || true
+
+          echo "app_exists=$APP" >> $GITHUB_OUTPUT
+          echo "data_attach_exists=$DATA_ATTACH" >> $GITHUB_OUTPUT
+          echo "data_create_exists=$DATA_CREATE" >> $GITHUB_OUTPUT
+          echo "network_exists=$NETWORK" >> $GITHUB_OUTPUT
+
+          # Derive DocDB cluster identifier
+          CLUSTER_ID="${DOCDB_INPUT}"
+          if [ -z "$CLUSTER_ID" ]; then
+            if [ "$DATA_ATTACH" = true ]; then
+              CLUSTER_ID=$(aws cloudformation describe-stacks --stack-name hubspot-quickbooks-data \
+                --query "Stacks[0].Outputs[?OutputKey=='DocDBClusterIdentifierOut'].OutputValue" --output text || true)
+            fi
+          fi
+          if [ -z "$CLUSTER_ID" ] && [ "$DATA_CREATE" = true ]; then
+            CLUSTER_ID=$(aws cloudformation describe-stacks --stack-name hubspot-quickbooks-data-create \
+              --query "Stacks[0].Parameters[?ParameterKey=='DocDBClusterIdentifier'].ParameterValue" --output text || true)
+          fi
+          echo "cluster_id=$CLUSTER_ID" >> $GITHUB_OUTPUT
+
+      - name: Delete app stack (Lambda + API)
+        if: ${{ inputs.DELETE_APP == 'true' && steps.detect.outputs.app_exists == 'true' }}
+        run: |
+          set -euo pipefail
+          aws cloudformation delete-stack --stack-name hubspot-quickbooks-app
+          aws cloudformation wait stack-delete-complete --stack-name hubspot-quickbooks-app
+
+      - name: Delete data attach stack
+        if: ${{ inputs.DELETE_DATA == 'true' && steps.detect.outputs.data_attach_exists == 'true' }}
+        run: |
+          set -euo pipefail
+          aws cloudformation delete-stack --stack-name hubspot-quickbooks-data
+          aws cloudformation wait stack-delete-complete --stack-name hubspot-quickbooks-data
+
+      - name: Delete DocDB instances and cluster (optional)
+        if: ${{ inputs.DELETE_DATA == 'true' && inputs.DELETE_DOCDB != 'none' }}
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          DELETE_DOCDB: ${{ inputs.DELETE_DOCDB }}
+          CLUSTER_ID: ${{ steps.detect.outputs.cluster_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLUSTER_ID}" ] || [ "${CLUSTER_ID}" = "None" ]; then
+            echo "No cluster id detected; skipping DocDB deletion"
+            exit 0
+          fi
+          # Enumerate and delete instances in the cluster
+          INSTANCES=$(aws docdb describe-db-instances --region "$AWS_REGION" \
+            --query "DBInstances[?DBClusterIdentifier=='${CLUSTER_ID}'].DBInstanceIdentifier" --output text || true)
+          for I in $INSTANCES; do
+            echo "Deleting DocDB instance: $I"
+            aws docdb delete-db-instance --region "$AWS_REGION" --db-instance-identifier "$I" || true
+          done
+          for I in $INSTANCES; do
+            echo "Waiting for DocDB instance to delete: $I"
+            aws docdb wait db-instance-deleted --region "$AWS_REGION" --db-instance-identifier "$I" || true
+          done
+          # Delete cluster with or without final snapshot
+          if [ "$DELETE_DOCDB" = "snapshot" ]; then
+            SNAP_ID="${CLUSTER_ID}-$(date +%Y%m%d%H%M%S)"
+            echo "Deleting DocDB cluster with final snapshot: $SNAP_ID"
+            aws docdb delete-db-cluster --region "$AWS_REGION" \
+              --db-cluster-identifier "$CLUSTER_ID" \
+              --final-db-snapshot-identifier "$SNAP_ID" || true
+          else
+            echo "Deleting DocDB cluster without final snapshot"
+            aws docdb delete-db-cluster --region "$AWS_REGION" \
+              --db-cluster-identifier "$CLUSTER_ID" \
+              --skip-final-snapshot || true
+          fi
+          echo "Waiting for DocDB cluster to delete: $CLUSTER_ID"
+          aws docdb wait db-cluster-deleted --region "$AWS_REGION" --db-cluster-identifier "$CLUSTER_ID" || true
+
+      - name: Delete data create stack
+        if: ${{ inputs.DELETE_DATA == 'true' && steps.detect.outputs.data_create_exists == 'true' }}
+        run: |
+          set -euo pipefail
+          aws cloudformation delete-stack --stack-name hubspot-quickbooks-data-create
+          aws cloudformation wait stack-delete-complete --stack-name hubspot-quickbooks-data-create
+
+      - name: Delete network stack
+        if: ${{ inputs.DELETE_NETWORK == 'true' && steps.detect.outputs.network_exists == 'true' }}
+        run: |
+          set -euo pipefail
+          aws cloudformation delete-stack --stack-name hubspot-quickbooks-network
+          aws cloudformation wait stack-delete-complete --stack-name hubspot-quickbooks-network
