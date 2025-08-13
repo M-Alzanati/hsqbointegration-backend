@@ -135,6 +135,9 @@ Resources:
 
   LambdaApiInvokePermission:
     Type: AWS::Lambda::Permission
+    DependsOn:
+      - HubspotQuickbookApiLambda
+      - HubspotQuickbookApiGateway
     Properties:
       FunctionName: !Ref HubspotQuickbookApiLambda
       Action: lambda:InvokeFunction
@@ -149,6 +152,10 @@ Resources:
 
   HubspotQuickbookApiIntegration:
     Type: AWS::ApiGatewayV2::Integration
+    DependsOn:
+      - HubspotQuickbookApiLambda
+      - LambdaApiInvokePermission
+      - HubspotQuickbookApiGateway
     Properties:
       ApiId: !Ref HubspotQuickbookApiGateway
       IntegrationType: AWS_PROXY
@@ -157,6 +164,8 @@ Resources:
 
   HubspotQuickbookApiRoute:
     Type: AWS::ApiGatewayV2::Route
+    DependsOn:
+      - HubspotQuickbookApiIntegration
     Properties:
       ApiId: !Ref HubspotQuickbookApiGateway
       RouteKey: "ANY /{proxy+}"
@@ -164,6 +173,10 @@ Resources:
 
   HubspotQuickbookApiStage:
     Type: AWS::ApiGatewayV2::Stage
+    DependsOn:
+      - HubspotQuickbookApiRoute
+      - HubspotQuickbookApiLogGroupHttpRequest
+      - HubspotQuickbookApiLogGroupHttpRequestPolicy
     Properties:
       ApiId: !Ref HubspotQuickbookApiGateway
       StageName: !Ref StageName
