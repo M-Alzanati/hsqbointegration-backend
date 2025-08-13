@@ -130,6 +130,7 @@ Resources:
           QUICKBOOKS_APP_URL: !If [ IsProd, "https://app.qbo.intuit.com/app/invoice", "https://sandbox.qbo.intuit.com/app/invoice" ]
           HUBSPOT_API_KEY_SECRET_NAME: hubspot/api/key
           QUICKBOOKS_ENVIRONMENT: !Ref QuickBooksEnvironment
+          QUICKBOOKS_TAX_CODE_ID: GST/HST
 
   LambdaApiInvokePermission:
     Type: AWS::Lambda::Permission
