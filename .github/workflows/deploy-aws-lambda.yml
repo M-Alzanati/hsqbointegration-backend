@@ -148,7 +148,7 @@ jobs:
           set -euo pipefail
           aws cloudformation deploy \
             --region "$AWS_REGION" \
-            --stack-name hubspot-quickbooks-data \
+            --stack-name hubspot-quickbooks-data-create \
             --template-file src/data-create.yaml \
             --capabilities CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset \
@@ -160,7 +160,7 @@ jobs:
         if: ${{ steps.detect_docdb.outputs.exists != 'true' }}
         run: |
           set -euo pipefail
-          STACK=hubspot-quickbooks-data
+          STACK=hubspot-quickbooks-data-create
           CREATED_ENDPOINT=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='DocDBClusterEndpoint'].OutputValue" --output text)
           CREATED_ID=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='DocDBClusterIdentifierOut'].OutputValue" --output text)
           CREATED_SG=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='DocDBSecurityGroupId'].OutputValue" --output text)
