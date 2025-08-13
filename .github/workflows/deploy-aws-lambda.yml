@@ -131,25 +131,43 @@ jobs:
               echo "existing_subnet2_id=$EXISTING_SUBNET2" >> $GITHUB_OUTPUT
             fi
           fi
-
       - name: Deploy Network stack
         env:
-          DOCDB_EXISTS: ${{ steps.detect_docdb.outputs.exists }}
           EXISTING_VPC_ID: ${{ steps.detect_docdb.outputs.existing_vpc_id }}
           EXISTING_SUBNET1: ${{ steps.detect_docdb.outputs.existing_subnet1_id }}
           EXISTING_SUBNET2: ${{ steps.detect_docdb.outputs.existing_subnet2_id }}
         run: |
           set -euo pipefail
+          STACK=hubspot-quickbooks-network
+
+          # If the network stack already exists and we plan to reuse an existing VPC,
+          # skip deploy when the outputs match the detected existing VPC/subnets.
+          if aws cloudformation describe-stacks --stack-name "$STACK" >/dev/null 2>&1; then
+            if [ -n "${EXISTING_VPC_ID:-}" ] \
+              && [ -n "${EXISTING_SUBNET1:-}" ] \
+              && [ -n "${EXISTING_SUBNET2:-}" ]; then
+              CURRENT_VPC=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='VpcId'].OutputValue" --output text)
+              CURRENT_PRIV1=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='PrivateSubnet1Id'].OutputValue" --output text)
+              CURRENT_PRIV2=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='PrivateSubnet2Id'].OutputValue" --output text)
+              if [ "$CURRENT_VPC" = "$EXISTING_VPC_ID" ] && [ "$CURRENT_PRIV1" = "$EXISTING_SUBNET1" ] && [ "$CURRENT_PRIV2" = "$EXISTING_SUBNET2" ]; then
+                echo "Network stack already aligned with existing VPC/subnets; skipping deploy."
+                exit 0
+              fi
+            fi
+          fi
+
           PARAMS=""
-          if [ "${DOCDB_EXISTS}" = "true" ] && [ -n "${EXISTING_VPC_ID}" ] && [ -n "${EXISTING_SUBNET1}" ] && [ -n "${EXISTING_SUBNET2}" ]; then
+          if [ -n "${EXISTING_VPC_ID:-}" ] && [ -n "${EXISTING_SUBNET1:-}" ] && [ -n "${EXISTING_SUBNET2:-}" ]; then
             PARAMS="--parameter-overrides UseExistingVpc=true ExistingVpcId=${EXISTING_VPC_ID} ExistingPrivateSubnet1Id=${EXISTING_SUBNET1} ExistingPrivateSubnet2Id=${EXISTING_SUBNET2}"
           else
             PARAMS="--parameter-overrides UseExistingVpc=false"
           fi
+
           aws cloudformation deploy \
-            --stack-name hubspot-quickbooks-network \
+            --stack-name "$STACK" \
             --template-file src/network.yaml \
             --capabilities CAPABILITY_NAMED_IAM \
+            --no-fail-on-empty-changeset \
             $PARAMS
 
       - name: Get Network outputs
