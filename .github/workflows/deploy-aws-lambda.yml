@@ -90,8 +90,13 @@ jobs:
           BUCKET=$(aws cloudformation describe-stacks --stack-name lambda-deployment-bucket --query "Stacks[0].Outputs[?OutputKey=='LambdaDeploymentBucketName'].OutputValue" --output text)
           echo "bucket_name=$BUCKET" >> $GITHUB_OUTPUT
 
-      - name: Upload Lambda zip to S3
-        run: aws s3 cp src/hubspot-quickbooks-backend.zip s3://${{ steps.get_bucket.outputs.bucket_name }}/hubspot-quickbooks-backend.zip
+      - name: Compute unique S3 key for Lambda zip
+        id: s3key
+        run: |
+          echo "key=hubspot-quickbooks-backend-${GITHUB_SHA}.zip" >> $GITHUB_OUTPUT
+
+      - name: Upload Lambda zip to S3 (unique key)
+        run: aws s3 cp src/hubspot-quickbooks-backend.zip s3://${{ steps.get_bucket.outputs.bucket_name }}/${{ steps.s3key.outputs.key }}
 
       - name: Detect existing DocDB cluster
         id: detect_docdb
@@ -218,6 +223,7 @@ jobs:
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
           BUCKET: ${{ steps.get_bucket.outputs.bucket_name }}
+          S3_KEY: ${{ steps.s3key.outputs.key }}
           DOCDB_ENDPOINT: ${{ steps.get_data.outputs.docdb_endpoint }}
           DOCDB_ID: ${{ steps.get_data.outputs.docdb_cluster_id }}
           MASTER_USER: ${{ steps.detect_docdb.outputs.master }}
@@ -233,9 +239,10 @@ jobs:
             --capabilities CAPABILITY_NAMED_IAM \
             --parameter-overrides \
               LambdaDeploymentBucket=$BUCKET \
-              LambdaS3Key=hubspot-quickbooks-backend.zip \
+              LambdaS3Key=$S3_KEY \
               DocDBClusterEndpoint=$DOCDB_ENDPOINT \
               DocDBClusterIdentifier=$DOCDB_ID \
               DocDBMasterUsername=$DOCDB_MASTER_USERNAME \
               StageName=$STAGE \
               QuickBooksEnvironment=$QBO_ENV
+
