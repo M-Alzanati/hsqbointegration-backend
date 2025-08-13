@@ -92,7 +92,7 @@ jobs:
       - name: Upload Lambda zip to S3
         run: aws s3 cp src/hubspot-quickbooks-backend.zip s3://${{ steps.get_bucket.outputs.bucket_name }}/hubspot-quickbooks-backend.zip
 
-      - name: Detect existing DocDB cluster (and network)
+      - name: Detect existing DocDB cluster
         id: detect_docdb
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
@@ -106,13 +106,6 @@ jobs:
             SG=$(jq -r '.DBClusters[0].VpcSecurityGroups[0].VpcSecurityGroupId' /tmp/docdb.json)
             MASTER=$(jq -r '.DBClusters[0].MasterUsername' /tmp/docdb.json)
             SUBNET_GRP=$(jq -r '.DBClusters[0].DBSubnetGroup' /tmp/docdb.json)
-            if [ "$SUBNET_GRP" != "null" ] && [ -n "$SUBNET_GRP" ]; then
-              aws docdb describe-db-subnet-groups --region "$AWS_REGION" --db-subnet-group-name "$SUBNET_GRP" >/tmp/subnetgrp.json
-              EXISTING_VPC_ID=$(jq -r '.DBSubnetGroups[0].VpcId' /tmp/subnetgrp.json)
-              # Pick first two subnet IDs deterministically
-              EXISTING_SUBNET1=$(jq -r '.DBSubnetGroups[0].Subnets | map(.SubnetIdentifier) | sort | .[0]' /tmp/subnetgrp.json)
-              EXISTING_SUBNET2=$(jq -r '.DBSubnetGroups[0].Subnets | map(.SubnetIdentifier) | sort | .[1]' /tmp/subnetgrp.json)
-            fi
           fi
           echo "exists=$EXISTS" >> $GITHUB_OUTPUT
           echo "cluster_id=$CLUSTER_ID" >> $GITHUB_OUTPUT
@@ -121,6 +114,21 @@ jobs:
             echo "sg_id=$SG" >> $GITHUB_OUTPUT
             echo "master=$MASTER" >> $GITHUB_OUTPUT
             echo "subnet_group_name=$SUBNET_GRP" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Detect network (from DocDB subnet group)
+        id: detect_network
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          SUBNET_GRP: ${{ steps.detect_docdb.outputs.subnet_group_name }}
+        run: |
+          set -euo pipefail
+          if [ -n "${SUBNET_GRP:-}" ] && [ "${SUBNET_GRP}" != "null" ]; then
+            aws docdb describe-db-subnet-groups --region "$AWS_REGION" --db-subnet-group-name "$SUBNET_GRP" >/tmp/subnetgrp.json
+            EXISTING_VPC_ID=$(jq -r '.DBSubnetGroups[0].VpcId' /tmp/subnetgrp.json)
+            # Pick first two subnet IDs deterministically
+            EXISTING_SUBNET1=$(jq -r '.DBSubnetGroups[0].Subnets | map(.SubnetIdentifier) | sort | .[0]' /tmp/subnetgrp.json)
+            EXISTING_SUBNET2=$(jq -r '.DBSubnetGroups[0].Subnets | map(.SubnetIdentifier) | sort | .[1]' /tmp/subnetgrp.json)
             if [ -n "${EXISTING_VPC_ID:-}" ]; then
               echo "existing_vpc_id=$EXISTING_VPC_ID" >> $GITHUB_OUTPUT
             fi
@@ -131,11 +139,12 @@ jobs:
               echo "existing_subnet2_id=$EXISTING_SUBNET2" >> $GITHUB_OUTPUT
             fi
           fi
+
       - name: Deploy Network stack
         env:
-          EXISTING_VPC_ID: ${{ steps.detect_docdb.outputs.existing_vpc_id }}
-          EXISTING_SUBNET1: ${{ steps.detect_docdb.outputs.existing_subnet1_id }}
-          EXISTING_SUBNET2: ${{ steps.detect_docdb.outputs.existing_subnet2_id }}
+          EXISTING_VPC_ID: ${{ steps.detect_network.outputs.existing_vpc_id }}
+          EXISTING_SUBNET1: ${{ steps.detect_network.outputs.existing_subnet1_id }}
+          EXISTING_SUBNET2: ${{ steps.detect_network.outputs.existing_subnet2_id }}
         run: |
           set -euo pipefail
           STACK=hubspot-quickbooks-network
