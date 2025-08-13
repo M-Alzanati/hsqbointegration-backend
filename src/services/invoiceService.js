@@ -3,10 +3,7 @@ const hubspotService = require("./hubspotService");
 const quickbooksService = require("./quickbooksService");
 
 const { logMessage } = require("../common/logger");
-const {
-  QB_TOKEN_COLLECTION,
-  QB_INVOICE_COLLECTION,
-} = require("../models/constants");
+const { QB_INVOICE_COLLECTION } = require("../models/constants");
 
 /** * Handle creating an invoice in QuickBooks
  * @param {Object} params - Parameters containing userId, dealId, and contactId
@@ -18,31 +15,23 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
   logMessage("DEBUG", "handleCreateInvoice called", { userId, dealId, contactId });
 
   try {
-    const tokenDoc = await db
-      .collection(QB_TOKEN_COLLECTION)
-      .findOne({ userId });
-    if (!tokenDoc) {
-      logMessage("INFO", "No QuickBooks token document found for user", userId);
-    } else {
-      logMessage("DEBUG", "Loaded QuickBooks token doc for user", {
-        userId,
-        hasAccessToken: !!tokenDoc.accessToken,
-        hasRefreshToken: !!tokenDoc.refreshToken,
-        hasRealmId: !!tokenDoc.realmId,
-      });
-    }
-
-    if (!tokenDoc) {
-      logMessage("WARN", "QuickBooks not connected for user:", userId);
+    // Use global/shared QuickBooks tokens (single-company mode)
+    const globalTokens = await quickbooksService.getGlobalTokens();
+    if (!globalTokens) {
+      logMessage("WARN", "QuickBooks not connected (global token missing)");
       return { error: "❌ QuickBooks not connected", status: 400 };
     }
 
-    accessToken = tokenDoc.accessToken;
-    refreshToken = tokenDoc.refreshToken;
-    realmId = tokenDoc.realmId;
+    accessToken = globalTokens.accessToken;
+    refreshToken = globalTokens.refreshToken;
+    realmId = globalTokens.realmId;
 
     if (!accessToken || !refreshToken || !realmId) {
-      logMessage("WARN", "Missing QuickBooks tokens for user:", userId);
+      logMessage("WARN", "Missing global QuickBooks tokens", {
+        hasAccessToken: !!accessToken,
+        hasRefreshToken: !!refreshToken,
+        hasRealmId: !!realmId,
+      });
       return { error: "❌ Missing QuickBooks tokens", status: 400 };
     }
 
@@ -151,9 +140,9 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
       message: error?.message,
     });
     if (error.statusCode === 401) {
-      await quickbooksService.handleRefreshToken(userId);
-      // Retry logic can be added here
-      return { error: "Token refreshed, please retry", status: 503 };
+  // Refresh global tokens and ask client to retry
+  await quickbooksService.getGlobalTokens();
+  return { error: "Token refreshed, please retry", status: 503 };
     }
 
     logMessage(
@@ -191,22 +180,23 @@ async function getInvoicesForDeal(dealId, userId) {
 
     logMessage("INFO", "Invoices found for deal:", dealId, dbInvoices.length);
 
-    // Get QuickBooks tokens
-  const tokenDoc = await db
-      .collection(QB_TOKEN_COLLECTION)
-      .findOne({ userId });
-
-    if (!tokenDoc) {
-      logMessage("WARN", "QuickBooks not connected for user:", userId);
+    // Get global QuickBooks tokens
+    const globalTokens = await quickbooksService.getGlobalTokens();
+    if (!globalTokens) {
+      logMessage("WARN", "QuickBooks not connected (global token missing)");
       return { error: "❌ QuickBooks not connected", status: 400 };
     }
 
-    const accessToken = tokenDoc.accessToken;
-    const refreshToken = tokenDoc.refreshToken;
-    const realmId = tokenDoc.realmId;
+    const accessToken = globalTokens.accessToken;
+    const refreshToken = globalTokens.refreshToken;
+    const realmId = globalTokens.realmId;
 
     if (!accessToken || !refreshToken || !realmId) {
-      logMessage("WARN", "Missing QuickBooks tokens for user:", userId);
+      logMessage("WARN", "Missing global QuickBooks tokens", {
+        hasAccessToken: !!accessToken,
+        hasRefreshToken: !!refreshToken,
+        hasRealmId: !!realmId,
+      });
       return { error: "❌ Missing QuickBooks tokens", status: 400 };
     }
 

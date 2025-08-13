@@ -39,9 +39,11 @@ async function upsertGlobalToken(db, tokenObj) {
     key: GLOBAL_TOKEN_KEY,
     updatedAt: new Date(),
   };
+
   await db
     .collection(QB_TOKEN_COLLECTION)
     .updateOne({ key: GLOBAL_TOKEN_KEY }, { $set: payload }, { upsert: true });
+
   return payload;
 }
 
@@ -72,10 +74,12 @@ async function ensureGlobalTokenFresh(db) {
   // Refresh using stored refresh token
   if (!tokenDoc.refreshToken && !tokenDoc.refresh_token) return tokenDoc;
   const refreshValue = tokenDoc.refreshToken || tokenDoc.refresh_token;
+
   logMessage("INFO", "Refreshing global QuickBooks token using refresh token");
   const oauthClient = await getOAuthClient();
   await oauthClient.refreshUsingToken(refreshValue);
   const saved = await upsertGlobalToken(db, oauthClient.token);
+
   logMessage("INFO", "Global QuickBooks token refreshed and saved");
   return saved;
 }
@@ -90,7 +94,10 @@ async function ensureQuickBooksCreds() {
     cachedQBClientId = process.env.QUICKBOOKS_CLIENT_ID;
     cachedQBClientSecret = process.env.QUICKBOOKS_CLIENT_SECRET;
     credsLoadedAt = now;
-  logMessage("INFO", "Using QuickBooks credentials from environment (dev/local)");
+    logMessage(
+      "INFO",
+      "Using QuickBooks credentials from environment (dev/local)"
+    );
     return;
   }
 
@@ -124,12 +131,16 @@ async function ensureQuickBooksCreds() {
   cachedQBClientId = id || cachedQBClientId;
   cachedQBClientSecret = secret || cachedQBClientSecret;
   credsLoadedAt = now;
-  logMessage("INFO", "Loaded QuickBooks client credentials from Secrets Manager", {
-    idSecretName,
-    keySecretName,
-    hasId: !!cachedQBClientId,
-    hasSecret: !!cachedQBClientSecret,
-  });
+  logMessage(
+    "INFO",
+    "Loaded QuickBooks client credentials from Secrets Manager",
+    {
+      idSecretName,
+      keySecretName,
+      hasId: !!cachedQBClientId,
+      hasSecret: !!cachedQBClientSecret,
+    }
+  );
 }
 
 async function getOAuthClient() {
@@ -184,6 +195,7 @@ function getQBOInstance(realmId, accessToken, refreshToken) {
 function parseQboError(err) {
   const fault = err?.Fault || err?.fault;
   const first = fault?.Error?.[0] || fault?.error?.[0] || err;
+
   return {
     type: fault?.type,
     code: first?.code || first?.Code,
@@ -719,11 +731,11 @@ async function createInvoice(
 
   const qbo = getQBOInstance(realmId, accessToken, refreshToken);
 
-  logMessage(
-    "DEBUG",
-    "Creating QuickBooks invoice",
-    { customerId, dealId: deal.id, amount: deal.amount }
-  );
+  logMessage("DEBUG", "Creating QuickBooks invoice", {
+    customerId,
+    dealId: deal.id,
+    amount: deal.amount,
+  });
   logMessage("DEBUG", "Invoice creation details:", { customerId, deal });
 
   let itemId = "1";
