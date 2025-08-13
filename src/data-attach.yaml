@@ -1,0 +1,26 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Data Attach stack (attaches Lambda ingress to existing DocumentDB)
+
+Parameters:
+  ExistingDocDBClusterIdentifier:
+    Type: String
+  ExistingDocDBClusterEndpoint:
+    Type: String
+  ExistingDocDBSecurityGroupId:
+    Type: String
+
+Resources:
+  AllowLambdaToExistingDocDBIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ExistingDocDBSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 27017
+      ToPort: 27017
+      SourceSecurityGroupId: !ImportValue 'hsqbo:network:LambdaSecurityGroupId'
+
+Outputs:
+  DocDBClusterEndpoint:
+    Value: !Ref ExistingDocDBClusterEndpoint
+  DocDBClusterIdentifierOut:
+    Value: !Ref ExistingDocDBClusterIdentifier

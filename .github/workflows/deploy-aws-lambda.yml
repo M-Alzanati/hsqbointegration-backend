@@ -130,130 +130,49 @@ jobs:
             echo "subnet_group_name=$SUBNET_GRP" >> $GITHUB_OUTPUT
           fi
 
-      - name: Detect network (from network stack or DocDB subnet group)
-        id: detect_network
-        env:
-          AWS_REGION: ${{ env.AWS_REGION }}
-          SUBNET_GRP: ${{ steps.detect_docdb.outputs.subnet_group_name }}
-        run: |
-          set -euo pipefail
-          STACK=hubspot-quickbooks-network
-          # Prefer reading from an existing network stack's outputs
-          if aws cloudformation describe-stacks --stack-name "$STACK" >/dev/null 2>&1; then
-            EXISTING_VPC_ID=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='VpcId'].OutputValue" --output text)
-            EXISTING_SUBNET1=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='PrivateSubnet1Id'].OutputValue" --output text)
-            EXISTING_SUBNET2=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='PrivateSubnet2Id'].OutputValue" --output text)
-            if [ -n "${EXISTING_VPC_ID:-}" ]; then echo "existing_vpc_id=$EXISTING_VPC_ID" >> $GITHUB_OUTPUT; fi
-            if [ -n "${EXISTING_SUBNET1:-}" ]; then echo "existing_subnet1_id=$EXISTING_SUBNET1" >> $GITHUB_OUTPUT; fi
-            if [ -n "${EXISTING_SUBNET2:-}" ]; then echo "existing_subnet2_id=$EXISTING_SUBNET2" >> $GITHUB_OUTPUT; fi
-            exit 0
-          fi
-
-          # Fallback: derive from DocDB subnet group if provided
-          if [ -n "${SUBNET_GRP:-}" ] && [ "${SUBNET_GRP}" != "null" ]; then
-            aws docdb describe-db-subnet-groups --region "$AWS_REGION" --db-subnet-group-name "$SUBNET_GRP" >/tmp/subnetgrp.json
-            EXISTING_VPC_ID=$(jq -r '.DBSubnetGroups[0].VpcId' /tmp/subnetgrp.json)
-            EXISTING_SUBNET1=$(jq -r '.DBSubnetGroups[0].Subnets | map(.SubnetIdentifier) | sort | .[0]' /tmp/subnetgrp.json)
-            EXISTING_SUBNET2=$(jq -r '.DBSubnetGroups[0].Subnets | map(.SubnetIdentifier) | sort | .[1]' /tmp/subnetgrp.json)
-            if [ -n "${EXISTING_VPC_ID:-}" ]; then echo "existing_vpc_id=$EXISTING_VPC_ID" >> $GITHUB_OUTPUT; fi
-            if [ -n "${EXISTING_SUBNET1:-}" ]; then echo "existing_subnet1_id=$EXISTING_SUBNET1" >> $GITHUB_OUTPUT; fi
-            if [ -n "${EXISTING_SUBNET2:-}" ]; then echo "existing_subnet2_id=$EXISTING_SUBNET2" >> $GITHUB_OUTPUT; fi
-          fi
-
       - name: Deploy Network stack
-        env:
-          EXISTING_VPC_ID: ${{ steps.detect_network.outputs.existing_vpc_id }}
-          EXISTING_SUBNET1: ${{ steps.detect_network.outputs.existing_subnet1_id }}
-          EXISTING_SUBNET2: ${{ steps.detect_network.outputs.existing_subnet2_id }}
         run: |
           set -euo pipefail
           STACK=hubspot-quickbooks-network
-
-          # If the network stack already exists and we plan to reuse an existing VPC,
-          # skip deploy when the outputs match the detected existing VPC/subnets.
-          if aws cloudformation describe-stacks --stack-name "$STACK" >/dev/null 2>&1; then
-            if [ -n "${EXISTING_VPC_ID:-}" ] \
-              && [ -n "${EXISTING_SUBNET1:-}" ] \
-              && [ -n "${EXISTING_SUBNET2:-}" ]; then
-              CURRENT_VPC=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='VpcId'].OutputValue" --output text)
-              CURRENT_PRIV1=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='PrivateSubnet1Id'].OutputValue" --output text)
-              CURRENT_PRIV2=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='PrivateSubnet2Id'].OutputValue" --output text)
-              if [ "$CURRENT_VPC" = "$EXISTING_VPC_ID" ] && [ "$CURRENT_PRIV1" = "$EXISTING_SUBNET1" ] && [ "$CURRENT_PRIV2" = "$EXISTING_SUBNET2" ]; then
-                echo "Network stack already aligned with existing VPC/subnets; skipping deploy."
-                exit 0
-              fi
-            fi
-          fi
-
-          PARAMS=""
-          if [ -n "${EXISTING_VPC_ID:-}" ] && [ -n "${EXISTING_SUBNET1:-}" ] && [ -n "${EXISTING_SUBNET2:-}" ]; then
-            PARAMS="--parameter-overrides UseExistingVpc=true ExistingVpcId=${EXISTING_VPC_ID} ExistingPrivateSubnet1Id=${EXISTING_SUBNET1} ExistingPrivateSubnet2Id=${EXISTING_SUBNET2}"
-          else
-            PARAMS="--parameter-overrides UseExistingVpc=false"
-          fi
-
           aws cloudformation deploy \
             --stack-name "$STACK" \
             --template-file src/network.yaml \
             --capabilities CAPABILITY_NAMED_IAM \
-            --no-fail-on-empty-changeset \
-            $PARAMS
+            --no-fail-on-empty-changeset
 
-      - name: Get Network Stack outputs
-        id: get_network
-        run: |
-          set -euo pipefail
-          STACK=hubspot-quickbooks-network
-          VPC_ID=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='VpcId'].OutputValue" --output text)
-          PRIV1=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='PrivateSubnet1Id'].OutputValue" --output text)
-          PRIV2=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='PrivateSubnet2Id'].OutputValue" --output text)
-          LAMBDA_SG=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='LambdaSecurityGroupId'].OutputValue" --output text)
-          echo "vpc_id=$VPC_ID" >> $GITHUB_OUTPUT
-          echo "private_subnet1_id=$PRIV1" >> $GITHUB_OUTPUT
-          echo "private_subnet2_id=$PRIV2" >> $GITHUB_OUTPUT
-          echo "lambda_sg_id=$LAMBDA_SG" >> $GITHUB_OUTPUT
-
-      - name: Deploy Data stack (DocumentDB)
+      - name: Create DocDB (one-time, if not exists)
+        if: ${{ steps.detect_docdb.outputs.exists != 'true' }}
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
-          VPC_ID: ${{ steps.get_network.outputs.vpc_id }}
-          PRIV1: ${{ steps.get_network.outputs.private_subnet1_id }}
-          PRIV2: ${{ steps.get_network.outputs.private_subnet2_id }}
-          LAMBDA_SG: ${{ steps.get_network.outputs.lambda_sg_id }}
-          DOCDB_EXISTS: ${{ steps.detect_docdb.outputs.exists }}
-          DATA_STACK_EXISTS: ${{ steps.detect_docdb.outputs.data_stack_exists }}
-          CURRENT_USE_EXISTING: ${{ steps.detect_docdb.outputs.current_use_existing }}
+        run: |
+          set -euo pipefail
+          aws cloudformation deploy \
+            --region "$AWS_REGION" \
+            --stack-name hubspot-quickbooks-data-create \
+            --template-file src/data-create.yaml \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides \
+              DocDBClusterIdentifier=${{ inputs.DOCDB_CLUSTER_IDENTIFIER }}
+
+      - name: Attach to existing DocDB (ingress + outputs)
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
           EXISTING_CLUSTER_ID: ${{ steps.detect_docdb.outputs.cluster_id }}
           EXISTING_ENDPOINT: ${{ steps.detect_docdb.outputs.endpoint }}
           EXISTING_SG: ${{ steps.detect_docdb.outputs.sg_id }}
         run: |
           set -euo pipefail
-          PARAMS="VpcId=$VPC_ID PrivateSubnet1Id=$PRIV1 PrivateSubnet2Id=$PRIV2 LambdaSecurityGroupId=$LAMBDA_SG"
-          # Decide whether to reuse an external DocDB cluster. If the data stack already exists,
-          # keep the current UseExistingDocDBCluster value to avoid toggling conditions that delete resources.
-          USE_EXISTING=""
-          if [ "${DATA_STACK_EXISTS}" = "true" ] && [ -n "${CURRENT_USE_EXISTING:-}" ]; then
-            USE_EXISTING="$CURRENT_USE_EXISTING"
-          else
-            if [ "${DOCDB_EXISTS}" = "true" ]; then
-              USE_EXISTING="true"
-            else
-              USE_EXISTING="false"
-            fi
-          fi
-
-          if [ "$USE_EXISTING" = "true" ]; then
-            PARAMS="$PARAMS UseExistingDocDBCluster=true ExistingDocDBClusterIdentifier=$EXISTING_CLUSTER_ID ExistingDocDBClusterEndpoint=$EXISTING_ENDPOINT ExistingDocDBSecurityGroupId=$EXISTING_SG"
-          else
-            PARAMS="$PARAMS UseExistingDocDBCluster=false DocDBClusterIdentifier=${{ inputs.DOCDB_CLUSTER_IDENTIFIER }}"
-          fi
           aws cloudformation deploy \
             --region "$AWS_REGION" \
             --stack-name hubspot-quickbooks-data \
-            --template-file src/data.yaml \
+            --template-file src/data-attach.yaml \
             --capabilities CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset \
-            --parameter-overrides $PARAMS
+            --parameter-overrides \
+              ExistingDocDBClusterIdentifier=$EXISTING_CLUSTER_ID \
+              ExistingDocDBClusterEndpoint=$EXISTING_ENDPOINT \
+              ExistingDocDBSecurityGroupId=$EXISTING_SG
 
       - name: Get Data Stack outputs
         id: get_data
@@ -269,9 +188,6 @@ jobs:
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
           BUCKET: ${{ steps.get_bucket.outputs.bucket_name }}
-          PRIV1: ${{ steps.get_network.outputs.private_subnet1_id }}
-          PRIV2: ${{ steps.get_network.outputs.private_subnet2_id }}
-          LAMBDA_SG: ${{ steps.get_network.outputs.lambda_sg_id }}
           DOCDB_ENDPOINT: ${{ steps.get_data.outputs.docdb_endpoint }}
           DOCDB_ID: ${{ steps.get_data.outputs.docdb_cluster_id }}
           MASTER_USER: ${{ steps.detect_docdb.outputs.master }}
@@ -288,9 +204,6 @@ jobs:
             --parameter-overrides \
               LambdaDeploymentBucket=$BUCKET \
               LambdaS3Key=hubspot-quickbooks-backend.zip \
-              PrivateSubnet1Id=$PRIV1 \
-              PrivateSubnet2Id=$PRIV2 \
-              LambdaSecurityGroupId=$LAMBDA_SG \
               DocDBClusterEndpoint=$DOCDB_ENDPOINT \
               DocDBClusterIdentifier=$DOCDB_ID \
               DocDBMasterUsername=$DOCDB_MASTER_USERNAME \

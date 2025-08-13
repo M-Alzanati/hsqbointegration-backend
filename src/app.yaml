@@ -7,12 +7,6 @@ Parameters:
   LambdaS3Key:
     Type: String
     Default: hubspot-quickbooks-backend.zip
-  PrivateSubnet1Id:
-    Type: String
-  PrivateSubnet2Id:
-    Type: String
-  LambdaSecurityGroupId:
-    Type: String
   DocDBMasterUsername:
     Type: String
     Default: hubspot_quickbooks_user
@@ -112,10 +106,10 @@ Resources:
       Timeout: 60
       VpcConfig:
         SubnetIds:
-          - !Ref PrivateSubnet1Id
-          - !Ref PrivateSubnet2Id
+          - !ImportValue hsqbo:network:PrivateSubnet1Id
+          - !ImportValue hsqbo:network:PrivateSubnet2Id
         SecurityGroupIds:
-          - !Ref LambdaSecurityGroupId
+          - !ImportValue hsqbo:network:LambdaSecurityGroupId
       Environment:
         Variables:
           DOCDB_USERNAME: !Ref DocDBMasterUsername

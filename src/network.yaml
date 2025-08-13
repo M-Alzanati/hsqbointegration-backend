@@ -162,9 +162,17 @@ Resources:
 Outputs:
   VpcId:
     Value: !If [UseExisting, !Ref ExistingVpcId, !Ref VPC]
+    Export:
+      Name: hsqbo:network:VpcId
   PrivateSubnet1Id:
     Value: !If [UseExisting, !Ref ExistingPrivateSubnet1Id, !Ref PrivateSubnet1]
+    Export:
+      Name: hsqbo:network:PrivateSubnet1Id
   PrivateSubnet2Id:
     Value: !If [UseExisting, !Ref ExistingPrivateSubnet2Id, !Ref PrivateSubnet2]
+    Export:
+      Name: hsqbo:network:PrivateSubnet2Id
   LambdaSecurityGroupId:
     Value: !Ref LambdaSecurityGroup
+    Export:
+      Name: hsqbo:network:LambdaSecurityGroupId
