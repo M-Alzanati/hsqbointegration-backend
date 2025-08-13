@@ -12,13 +12,17 @@ const { QB_INVOICE_COLLECTION } = require("../models/constants");
 async function handleCreateInvoice({ userId, dealId, contactId }) {
   const db = getDB();
   let accessToken, refreshToken, realmId;
-  logMessage("DEBUG", "handleCreateInvoice called", { userId, dealId, contactId });
+  logMessage("DEBUG", "🐛 handleCreateInvoice called", {
+    userId,
+    dealId,
+    contactId,
+  });
 
   try {
     // Use global/shared QuickBooks tokens (single-company mode)
     const globalTokens = await quickbooksService.getGlobalTokens();
     if (!globalTokens) {
-      logMessage("WARN", "QuickBooks not connected (global token missing)");
+      logMessage("WARN", "⚠️ QuickBooks not connected (global token missing)");
       return { error: "❌ QuickBooks not connected", status: 400 };
     }
 
@@ -27,7 +31,7 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
     realmId = globalTokens.realmId;
 
     if (!accessToken || !refreshToken || !realmId) {
-      logMessage("WARN", "Missing global QuickBooks tokens", {
+      logMessage("WARN", "⚠️ Missing global QuickBooks tokens", {
         hasAccessToken: !!accessToken,
         hasRefreshToken: !!refreshToken,
         hasRealmId: !!realmId,
@@ -38,17 +42,20 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
     // Get deal and contact from HubSpot
     logMessage(
       "INFO",
-      "Fetching HubSpot data for deal:",
+      "🔄 Fetching HubSpot data for deal:",
       dealId,
       "and contact:",
       contactId
     );
-    logMessage("INFO", "Fetching deal and contact from HubSpot", { dealId, contactId });
+    logMessage("INFO", "🔄 Fetching deal and contact from HubSpot", {
+      dealId,
+      contactId,
+    });
     const { deal, contact } = await hubspotService.getHubSpotData(
       dealId,
       contactId
     );
-    logMessage("DEBUG", "Fetched HubSpot data", {
+  logMessage("DEBUG", "🐛 Fetched HubSpot data", {
       dealProps: Object.keys(deal || {}),
       contactProps: Object.keys(contact || {}),
     });
@@ -56,24 +63,27 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
     // Find or create customer in QuickBooks
     logMessage(
       "INFO",
-      "Finding or creating QuickBooks customer for contact:",
+      "🔄 Finding or creating QuickBooks customer for contact:",
       contactId
     );
-  logMessage("INFO", "Invoking getOrCreateCustomer", { userId, contactEmail: contact?.email });
-  const customerId = await quickbooksService.getOrCreateCustomer(
+    logMessage("INFO", "🔄 Invoking getOrCreateCustomer", {
+      userId,
+      contactEmail: contact?.email,
+    });
+    const customerId = await quickbooksService.getOrCreateCustomer(
       realmId,
       accessToken,
       { ...contact, id: contact.hs_object_id },
       refreshToken
     );
-  logMessage("INFO", "QuickBooks customer resolved", { customerId });
+  logMessage("INFO", "✅ QuickBooks customer resolved", { customerId });
 
     // Create invoice in QuickBooks
-    logMessage("INFO", "Creating QuickBooks invoice for deal:", dealId);
+  logMessage("INFO", "🔄 Creating QuickBooks invoice for deal:", dealId);
     deal.id = dealId;
 
-  logMessage("INFO", "Calling createInvoice", { dealId, customerId });
-  const { invoiceNumber, invoiceUrl } = await quickbooksService.createInvoice(
+  logMessage("INFO", "🔄 Calling createInvoice", { dealId, customerId });
+    const { invoiceNumber, invoiceUrl } = await quickbooksService.createInvoice(
       realmId,
       accessToken,
       refreshToken,
@@ -87,7 +97,7 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
 
     logMessage(
       "INFO",
-      "Invoice created successfully:",
+      "✅ Invoice created successfully:",
       invoiceNumber,
       invoiceUrl,
       "for deal:",
@@ -103,12 +113,16 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
     // Update HubSpot deal with invoice info
     logMessage(
       "INFO",
-      "Updating HubSpot deal with invoice info for deal:",
+      "🔄 Updating HubSpot deal with invoice info for deal:",
       dealId
     );
-  logMessage("INFO", "Updating HubSpot deal with invoice data", { dealId, invoiceNumber });
-  await hubspotService.updateHubSpotDeal(dealId, invoiceNumber, invoiceUrl);
-  logMessage("DEBUG", "HubSpot deal updated", { dealId });
+    logMessage("INFO", "🔄 Updating HubSpot deal with invoice data", {
+      dealId,
+      invoiceNumber,
+    });
+
+    await hubspotService.updateHubSpotDeal(dealId, invoiceNumber, invoiceUrl);
+  logMessage("DEBUG", "✅ HubSpot deal updated", { dealId });
 
     // Save invoice to MongoDB
     const invoiceDoc = {
@@ -123,7 +137,7 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
     };
 
     await db.collection(QB_INVOICE_COLLECTION).insertOne(invoiceDoc);
-    logMessage("INFO", "Saved invoice document in DB", {
+  logMessage("INFO", "✅ Saved invoice document in DB", {
       userId,
       dealId,
       contactId,
@@ -133,16 +147,16 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
 
     return { invoiceNumber, invoiceUrl };
   } catch (error) {
-    logMessage("ERROR", "handleCreateInvoice error", {
+  logMessage("ERROR", "❌ handleCreateInvoice error", {
       userId,
       dealId,
       contactId,
       message: error?.message,
     });
     if (error.statusCode === 401) {
-  // Refresh global tokens and ask client to retry
-  await quickbooksService.getGlobalTokens();
-  return { error: "Token refreshed, please retry", status: 503 };
+      // Refresh global tokens and ask client to retry
+      await quickbooksService.getGlobalTokens();
+      return { error: "❌ Token refreshed, please retry", status: 503 };
     }
 
     logMessage(
@@ -160,7 +174,7 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
  */
 async function getInvoicesForDeal(dealId, userId) {
   const db = getDB();
-  logMessage("DEBUG", "getInvoicesForDeal called", { dealId, userId });
+  logMessage("DEBUG", "🐛 getInvoicesForDeal called", { dealId, userId });
 
   try {
     // Get invoices from MongoDB
@@ -168,22 +182,22 @@ async function getInvoicesForDeal(dealId, userId) {
       .collection(QB_INVOICE_COLLECTION)
       .find({ dealId })
       .toArray();
-    logMessage("INFO", "Loaded invoices from DB for deal", {
+  logMessage("INFO", "📄 Loaded invoices from DB for deal", {
       dealId,
       count: (dbInvoices || []).length,
     });
 
     if (!dbInvoices || dbInvoices.length === 0) {
-      logMessage("INFO", "No invoices found for deal:", dealId);
+      logMessage("INFO", "ℹ️ No invoices found for deal:", dealId);
       return { invoices: [], quickbooksInvoices: [] };
     }
 
-    logMessage("INFO", "Invoices found for deal:", dealId, dbInvoices.length);
+    logMessage("INFO", "📄 Invoices found for deal:", dealId, dbInvoices.length);
 
     // Get global QuickBooks tokens
     const globalTokens = await quickbooksService.getGlobalTokens();
     if (!globalTokens) {
-      logMessage("WARN", "QuickBooks not connected (global token missing)");
+      logMessage("WARN", "⚠️ QuickBooks not connected (global token missing)");
       return { error: "❌ QuickBooks not connected", status: 400 };
     }
 
@@ -192,7 +206,7 @@ async function getInvoicesForDeal(dealId, userId) {
     const realmId = globalTokens.realmId;
 
     if (!accessToken || !refreshToken || !realmId) {
-      logMessage("WARN", "Missing global QuickBooks tokens", {
+      logMessage("WARN", "⚠️ Missing global QuickBooks tokens", {
         hasAccessToken: !!accessToken,
         hasRefreshToken: !!refreshToken,
         hasRealmId: !!realmId,
@@ -212,7 +226,7 @@ async function getInvoicesForDeal(dealId, userId) {
         refreshToken,
         invoiceIds
       );
-    logMessage("DEBUG", "Verified invoices in QuickBooks", {
+  logMessage("DEBUG", "🐛 Verified invoices in QuickBooks", {
       requested: invoiceIds.length,
       returned: quickbooksInvoiceValidity
         ? Object.keys(quickbooksInvoiceValidity).length
@@ -235,14 +249,14 @@ async function getInvoicesForDeal(dealId, userId) {
         )
         .map((inv) => inv._id);
 
-  if (deletedInvoiceIds.length > 0) {
+      if (deletedInvoiceIds.length > 0) {
         await db
           .collection(QB_INVOICE_COLLECTION)
           .deleteMany({ _id: { $in: deletedInvoiceIds } });
 
         logMessage(
           "INFO",
-          `Removed ${deletedInvoiceIds.length} invoices from DB that were deleted in QuickBooks.`
+          `✅ Removed ${deletedInvoiceIds.length} invoices from DB that were deleted in QuickBooks.`
         );
       }
 
@@ -257,7 +271,7 @@ async function getInvoicesForDeal(dealId, userId) {
         .filter((inv) => inv.isValidInQuickBooks);
     }
 
-    logMessage("INFO", "Returning invoices for deal", {
+  logMessage("INFO", "✅ Returning invoices for deal", {
       dealId,
       count: (invoicesWithValidity || []).length,
     });

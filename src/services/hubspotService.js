@@ -10,12 +10,12 @@ const HUBSPOT_TTL = 10 * 60 * 1000;
 async function getHubspotAccessToken() {
   // Prefer direct env var for local/dev
   if (process.env.HUBSPOT_API_KEY) {
-  logMessage && logMessage("INFO", "Using HubSpot token from environment (dev/local)");
+  logMessage("INFO", "ℹ️ Using HubSpot token from environment (dev/local)");
     return process.env.HUBSPOT_API_KEY;
   }
   const now = Date.now();
   if (cachedHubspotToken && now - hubspotLoadedAt < HUBSPOT_TTL) {
-  logMessage && logMessage("DEBUG", "Using cached HubSpot token");
+  logMessage("DEBUG", "🐛 Using cached HubSpot token");
     return cachedHubspotToken;
   }
 
@@ -29,7 +29,7 @@ async function getHubspotAccessToken() {
 
   cachedHubspotToken = token;
   hubspotLoadedAt = now;
-  logMessage && logMessage("INFO", "Loaded HubSpot token from Secrets Manager", {
+  logMessage("INFO", "🔐 Loaded HubSpot token from Secrets Manager", {
     secretName,
     hasToken: !!token,
   });
@@ -55,14 +55,14 @@ async function getHubSpotData(dealId, contactId) {
   const dealResponse = await hubspotClient.crm.deals.basicApi.getById(dealId, [
     "amount",
   ]);
-  logMessage && logMessage("DEBUG", "Fetched HubSpot deal", { dealId });
+  logMessage("DEBUG", "📄 Fetched HubSpot deal", { dealId });
 
   // Get contact
   const contactResponse = await hubspotClient.crm.contacts.basicApi.getById(
     contactId,
     ["email", "firstname", "lastname"]
   );
-  logMessage && logMessage("DEBUG", "Fetched HubSpot contact", { contactId });
+  logMessage("DEBUG", "📄 Fetched HubSpot contact", { contactId });
 
   return {
     deal: dealResponse.properties,
@@ -72,7 +72,7 @@ async function getHubSpotData(dealId, contactId) {
 
 async function updateHubSpotDeal(dealId, invoiceNumber, invoiceUrl) {
   const hubspotClient = await getHubspotClient();
-  logMessage && logMessage("INFO", "Updating HubSpot deal", {
+  logMessage("INFO", "🔄 Updating HubSpot deal", {
     dealId,
     invoiceNumber,
   });
@@ -82,7 +82,7 @@ async function updateHubSpotDeal(dealId, invoiceNumber, invoiceUrl) {
       invoice_url: invoiceUrl,
     },
   });
-  logMessage && logMessage("DEBUG", "HubSpot deal updated", { dealId });
+  logMessage("DEBUG", "✅ HubSpot deal updated", { dealId });
 }
 
 // Get contact by ID with custom properties
@@ -95,7 +95,7 @@ async function getContactById(
     contactId,
     properties
   );
-  logMessage && logMessage("DEBUG", "Fetched contact by ID", { contactId });
+  logMessage("DEBUG", "📄 Fetched contact by ID", { contactId });
 
   return contactResponse.properties;
 }
@@ -107,7 +107,7 @@ async function getDealById(dealId, properties = ["amount"]) {
     dealId,
     properties
   );
-  logMessage && logMessage("DEBUG", "Fetched deal by ID", { dealId });
+  logMessage("DEBUG", "📄 Fetched deal by ID", { dealId });
 
   return dealResponse.properties;
 }
@@ -213,7 +213,10 @@ function validateHubSpotRequest(req) {
   }
 
   // Validate timestamp
-  console.log(`Signature: ${signatureHeader}, Timestamp: ${timestampHeader}`);
+  logMessage("DEBUG", "🐛 HubSpot webhook signature headers", {
+    signature: signatureHeader,
+    timestamp: timestampHeader,
+  });
 
   const MAX_ALLOWED_TIMESTAMP = 300000; // 5 minutes in ms
   const currentTime = Date.now();

@@ -65,7 +65,7 @@ async function ensureGlobalTokenFresh(db) {
   const expiresAt = computeExpiresAt(tokenDoc.createdAt, tokenDoc.expiresIn);
   if (expiresAt && now < expiresAt - 30_000) {
     // not expired (30s buffer)
-    logMessage("DEBUG", "Global QuickBooks token still valid (buffered)", {
+  logMessage("DEBUG", "🐛 Global QuickBooks token still valid (buffered)", {
       expiresAt,
     });
     return tokenDoc;
@@ -75,12 +75,12 @@ async function ensureGlobalTokenFresh(db) {
   if (!tokenDoc.refreshToken && !tokenDoc.refresh_token) return tokenDoc;
   const refreshValue = tokenDoc.refreshToken || tokenDoc.refresh_token;
 
-  logMessage("INFO", "Refreshing global QuickBooks token using refresh token");
+  logMessage("INFO", "🔄 Refreshing global QuickBooks token using refresh token");
   const oauthClient = await getOAuthClient();
   await oauthClient.refreshUsingToken(refreshValue);
   const saved = await upsertGlobalToken(db, oauthClient.token);
 
-  logMessage("INFO", "Global QuickBooks token refreshed and saved");
+  logMessage("INFO", "✅ Global QuickBooks token refreshed and saved");
   return saved;
 }
 
@@ -96,7 +96,7 @@ async function ensureQuickBooksCreds() {
     credsLoadedAt = now;
     logMessage(
       "INFO",
-      "Using QuickBooks credentials from environment (dev/local)"
+      "ℹ️ Using QuickBooks credentials from environment (dev/local)"
     );
     return;
   }
@@ -133,7 +133,7 @@ async function ensureQuickBooksCreds() {
   credsLoadedAt = now;
   logMessage(
     "INFO",
-    "Loaded QuickBooks client credentials from Secrets Manager",
+    "🔐 Loaded QuickBooks client credentials from Secrets Manager",
     {
       idSecretName,
       keySecretName,
@@ -174,7 +174,7 @@ async function getOAuthClient() {
       environment: process.env.QUICKBOOKS_ENVIRONMENT,
       redirectUri: process.env.QUICKBOOKS_REDIRECT_URI,
     });
-    logMessage("DEBUG", "Created OAuthClient for QuickBooks", {
+  logMessage("DEBUG", "🐛 Created OAuthClient for QuickBooks", {
       environment: process.env.QUICKBOOKS_ENVIRONMENT,
       hasRedirect: !!process.env.QUICKBOOKS_REDIRECT_URI,
     });
@@ -306,7 +306,7 @@ async function getPreferredTaxCodeId(qbo) {
 async function getAuthUri(userId) {
   logMessage(
     "DEBUG",
-    "Generating auth URI (single-company mode). user:",
+    "🐛 Generating auth URI (single-company mode). user:",
     userId
   );
 
@@ -320,7 +320,7 @@ async function getAuthUri(userId) {
     state: userId,
   });
 
-  logMessage("DEBUG", "Generated auth URI:", authUri);
+  logMessage("DEBUG", "🐛 Generated auth URI:", authUri);
   return authUri;
 }
 
@@ -338,14 +338,14 @@ async function checkConnection(userId) {
   try {
     const fresh = await ensureGlobalTokenFresh(db);
     if (!fresh) {
-      logMessage("INFO", "No global QuickBooks token present yet.");
+  logMessage("INFO", "ℹ️ No global QuickBooks token present yet.");
       return { connected: false, authUrl };
     }
 
     logMessage("INFO", "✅ Global QuickBooks token is available");
     return { connected: true, authUrl };
   } catch (error) {
-    logMessage("ERROR", "❌ checkConnection (global) error:", error);
+  logMessage("ERROR", "❌ checkConnection (global) error:", error);
     return { connected: false, authUrl };
   }
 }
@@ -367,7 +367,7 @@ async function handleCallback(parseRedirectUrl, code, state) {
       state
     );
     logMessage("INFO", "🔄 Redirect URL:", parseRedirectUrl);
-    logMessage("DEBUG", "OAuth callback parameters:", {
+    logMessage("DEBUG", "🐛 OAuth callback parameters:", {
       code,
       state,
       parseRedirectUrl,
@@ -375,7 +375,7 @@ async function handleCallback(parseRedirectUrl, code, state) {
 
     const oauthClient = await getOAuthClient();
     await oauthClient.createToken(parseRedirectUrl);
-    logMessage("DEBUG", "OAuth client after createToken:", {
+  logMessage("DEBUG", "🐛 OAuth client after createToken:", {
       hasToken: !!oauthClient.token,
       tokenKeys: oauthClient.token ? Object.keys(oauthClient.token) : [],
     });
@@ -480,10 +480,10 @@ async function handleRefreshToken(userId) {
     );
     await upsertGlobalToken(db, oauthClient.token);
 
-    logMessage("INFO", `✅ Refreshed global QuickBooks token`);
+  logMessage("INFO", `✅ Refreshed global QuickBooks token`);
     return { success: true };
   } catch (error) {
-    logMessage("ERROR", "❌ Global token refresh error:", error);
+  logMessage("ERROR", "❌ Global token refresh error:", error);
     return {
       success: false,
       status: 500,
@@ -535,7 +535,7 @@ async function getOrCreateCustomer(
   }
   logMessage(
     "DEBUG",
-    "Creating QuickBooks instance for customer lookup/creation",
+  "🐛 Creating QuickBooks instance for customer lookup/creation",
     {
       realmId,
       hasAccessToken: !!accessToken,
@@ -636,7 +636,7 @@ async function handleQBOQuery(qbo, contact) {
         if (errorCode === "3200") {
           logMessage(
             "WARN",
-            "QuickBooks token expired (code 3200), refreshing token..."
+            "⚠️ QuickBooks token expired (code 3200), refreshing token..."
           );
 
           await module.exports.handleRefreshToken(
@@ -671,7 +671,7 @@ async function handleQBOFindCustomers(qbo, contact) {
           if (errorCode === "3200") {
             logMessage(
               "WARN",
-              "QuickBooks token expired (code 3200), refreshing token..."
+              "⚠️ QuickBooks token expired (code 3200), refreshing token..."
             );
             await module.exports.handleRefreshToken(
               contact.userId || contact.id || ""
@@ -736,7 +736,7 @@ async function createInvoice(
     accessToken = accessToken || shared.accessToken;
     refreshToken = refreshToken || shared.refreshToken;
   }
-  logMessage("DEBUG", "Creating QuickBooks instance for invoice creation", {
+  logMessage("DEBUG", "🐛 Creating QuickBooks instance for invoice creation", {
     realmId,
     hasAccessToken: !!accessToken,
     hasRefreshToken: !!refreshToken,
@@ -747,12 +747,12 @@ async function createInvoice(
 
   const qbo = getQBOInstance(realmId, accessToken, refreshToken);
 
-  logMessage("DEBUG", "Creating QuickBooks invoice", {
+  logMessage("DEBUG", "🔄 Creating QuickBooks invoice", {
     customerId,
     dealId: deal.id,
     amount: deal.amount,
   });
-  logMessage("DEBUG", "Invoice creation details:", { customerId, deal });
+  logMessage("DEBUG", "📄 Invoice creation details:", { customerId, deal });
 
   let itemId = "1";
   try {
@@ -784,18 +784,18 @@ async function createInvoice(
   let taxCodeId = null;
   const bypassTax = shouldBypassTaxCode(deal);
   if (bypassTax) {
-    logMessage("INFO", "Bypassing TaxCode for invoice per configuration", {
+    logMessage("INFO", "ℹ️ Bypassing TaxCode for invoice per configuration", {
       dealId: deal.id,
     });
   } else {
     try {
       taxCodeId = await getPreferredTaxCodeId(qbo);
-      logMessage("DEBUG", "Using TaxCodeId for invoice", taxCodeId);
+      logMessage("DEBUG", "🐛 Using TaxCodeId for invoice", taxCodeId);
     } catch (e) {
       // If TaxCode retrieval fails, proceed without it; QBO may still accept for some regions
       logMessage(
         "WARN",
-        "Could not determine TaxCodeId automatically; proceeding without TaxCodeRef",
+        "⚠️ Could not determine TaxCodeId automatically; proceeding without TaxCodeRef",
         e?.message || e
       );
     }
@@ -1020,7 +1020,7 @@ async function verifyInvoicesInQuickBooks(
 
   logMessage(
     "DEBUG",
-    "Verifying invoices in QuickBooks for realmId:",
+    "🔎 Verifying invoices in QuickBooks for realmId:",
     realmId,
     "with invoiceIds:",
     invoiceIds
@@ -1072,7 +1072,7 @@ async function verifyInvoicesInQuickBooks(
   } catch (e) {
     logMessage("ERROR", "❌ Error verifying invoices in QuickBooks:", e);
     // If error, mark all as valid since we can't determine their status
-    logMessage("DEBUG", "Returning all invoiceIds as valid due to error");
+  logMessage("DEBUG", "⚠️ Returning all invoiceIds as valid due to error");
     return invoiceIds.reduce((acc, id) => {
       acc[id] = true;
       return acc;
