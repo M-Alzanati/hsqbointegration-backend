@@ -155,14 +155,44 @@ jobs:
             --parameter-overrides \
               DocDBClusterIdentifier=${{ inputs.DOCDB_CLUSTER_IDENTIFIER }}
 
+      - name: Get Data Stack Create outputs (if created)
+        id: get_data_create
+        if: ${{ steps.detect_docdb.outputs.exists != 'true' }}
+        run: |
+          set -euo pipefail
+          STACK=hubspot-quickbooks-data
+          CREATED_ENDPOINT=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='DocDBClusterEndpoint'].OutputValue" --output text)
+          CREATED_ID=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='DocDBClusterIdentifierOut'].OutputValue" --output text)
+          CREATED_SG=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='DocDBSecurityGroupId'].OutputValue" --output text)
+          echo "created_endpoint=$CREATED_ENDPOINT" >> $GITHUB_OUTPUT
+          echo "created_cluster_id=$CREATED_ID" >> $GITHUB_OUTPUT
+          echo "created_sg=$CREATED_SG" >> $GITHUB_OUTPUT
+
       - name: Attach to existing DocDB (ingress + outputs)
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
           EXISTING_CLUSTER_ID: ${{ steps.detect_docdb.outputs.cluster_id }}
           EXISTING_ENDPOINT: ${{ steps.detect_docdb.outputs.endpoint }}
           EXISTING_SG: ${{ steps.detect_docdb.outputs.sg_id }}
+          CREATED_CLUSTER_ID: ${{ steps.get_data_create.outputs.created_cluster_id }}
+          CREATED_ENDPOINT: ${{ steps.get_data_create.outputs.created_endpoint }}
+          CREATED_SG: ${{ steps.get_data_create.outputs.created_sg }}
         run: |
           set -euo pipefail
+          # Prefer created values if we just created the cluster; else use detected ones
+          CLUSTER_ID="${CREATED_CLUSTER_ID:-${EXISTING_CLUSTER_ID:-}}"
+          ENDPOINT="${CREATED_ENDPOINT:-${EXISTING_ENDPOINT:-}}"
+          SG_ID="${CREATED_SG:-${EXISTING_SG:-}}"
+
+          # Guard against empty values
+          for v in CLUSTER_ID ENDPOINT SG_ID; do
+            VAL="${!v}"
+            if [ -z "$VAL" ] || [ "$VAL" = "None" ] || [ "$VAL" = "null" ]; then
+              echo "Error: $v is empty. Cannot attach ingress to DocDB."
+              exit 1
+            fi
+          done
+
           aws cloudformation deploy \
             --region "$AWS_REGION" \
             --stack-name hubspot-quickbooks-data \
@@ -170,9 +200,9 @@ jobs:
             --capabilities CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset \
             --parameter-overrides \
-              ExistingDocDBClusterIdentifier=$EXISTING_CLUSTER_ID \
-              ExistingDocDBClusterEndpoint=$EXISTING_ENDPOINT \
-              ExistingDocDBSecurityGroupId=$EXISTING_SG
+              ExistingDocDBClusterIdentifier=$CLUSTER_ID \
+              ExistingDocDBClusterEndpoint=$ENDPOINT \
+              ExistingDocDBSecurityGroupId=$SG_ID
 
       - name: Get Data Stack outputs
         id: get_data
