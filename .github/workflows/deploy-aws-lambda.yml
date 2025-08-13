@@ -23,6 +23,7 @@ on:
         description: "Desired DocDB cluster identifier (used for existence check)"
         required: false
         default: "quickbooks-hubspot-cluster"
+
 jobs:
   deploy:
     name: Deploy CloudFormation and Lambda
@@ -99,6 +100,15 @@ jobs:
           CLUSTER_ID: ${{ inputs.DOCDB_CLUSTER_IDENTIFIER }}
         run: |
           set -euo pipefail
+          DATA_STACK=hubspot-quickbooks-data
+          STACK_EXISTS=false
+          CURR_USE_EXISTING=""
+          if aws cloudformation describe-stacks --stack-name "$DATA_STACK" >/dev/null 2>&1; then
+            STACK_EXISTS=true
+            # Read the current parameter value to keep behavior sticky and avoid flip-flopping
+            CURR_USE_EXISTING=$(aws cloudformation describe-stacks --stack-name "$DATA_STACK" \
+              --query "Stacks[0].Parameters[?ParameterKey=='UseExistingDocDBCluster'].ParameterValue" --output text | tr -d '\r') || true
+          fi
           EXISTS=false
           if aws docdb describe-db-clusters --region "$AWS_REGION" --db-cluster-identifier "$CLUSTER_ID" >/tmp/docdb.json 2>/dev/null; then
             EXISTS=true
@@ -106,6 +116,10 @@ jobs:
             SG=$(jq -r '.DBClusters[0].VpcSecurityGroups[0].VpcSecurityGroupId' /tmp/docdb.json)
             MASTER=$(jq -r '.DBClusters[0].MasterUsername' /tmp/docdb.json)
             SUBNET_GRP=$(jq -r '.DBClusters[0].DBSubnetGroup' /tmp/docdb.json)
+          fi
+          echo "data_stack_exists=$STACK_EXISTS" >> $GITHUB_OUTPUT
+          if [ -n "$CURR_USE_EXISTING" ] && [ "$CURR_USE_EXISTING" != "None" ]; then
+            echo "current_use_existing=$CURR_USE_EXISTING" >> $GITHUB_OUTPUT
           fi
           echo "exists=$EXISTS" >> $GITHUB_OUTPUT
           echo "cluster_id=$CLUSTER_ID" >> $GITHUB_OUTPUT
@@ -185,7 +199,7 @@ jobs:
             --no-fail-on-empty-changeset \
             $PARAMS
 
-      - name: Get Network outputs
+      - name: Get Network Stack outputs
         id: get_network
         run: |
           set -euo pipefail
@@ -207,13 +221,28 @@ jobs:
           PRIV2: ${{ steps.get_network.outputs.private_subnet2_id }}
           LAMBDA_SG: ${{ steps.get_network.outputs.lambda_sg_id }}
           DOCDB_EXISTS: ${{ steps.detect_docdb.outputs.exists }}
+          DATA_STACK_EXISTS: ${{ steps.detect_docdb.outputs.data_stack_exists }}
+          CURRENT_USE_EXISTING: ${{ steps.detect_docdb.outputs.current_use_existing }}
           EXISTING_CLUSTER_ID: ${{ steps.detect_docdb.outputs.cluster_id }}
           EXISTING_ENDPOINT: ${{ steps.detect_docdb.outputs.endpoint }}
           EXISTING_SG: ${{ steps.detect_docdb.outputs.sg_id }}
         run: |
           set -euo pipefail
           PARAMS="VpcId=$VPC_ID PrivateSubnet1Id=$PRIV1 PrivateSubnet2Id=$PRIV2 LambdaSecurityGroupId=$LAMBDA_SG"
-          if [ "${DOCDB_EXISTS}" = "true" ]; then
+          # Decide whether to reuse an external DocDB cluster. If the data stack already exists,
+          # keep the current UseExistingDocDBCluster value to avoid toggling conditions that delete resources.
+          USE_EXISTING=""
+          if [ "${DATA_STACK_EXISTS}" = "true" ] && [ -n "${CURRENT_USE_EXISTING:-}" ]; then
+            USE_EXISTING="$CURRENT_USE_EXISTING"
+          else
+            if [ "${DOCDB_EXISTS}" = "true" ]; then
+              USE_EXISTING="true"
+            else
+              USE_EXISTING="false"
+            fi
+          fi
+
+          if [ "$USE_EXISTING" = "true" ]; then
             PARAMS="$PARAMS UseExistingDocDBCluster=true ExistingDocDBClusterIdentifier=$EXISTING_CLUSTER_ID ExistingDocDBClusterEndpoint=$EXISTING_ENDPOINT ExistingDocDBSecurityGroupId=$EXISTING_SG"
           else
             PARAMS="$PARAMS UseExistingDocDBCluster=false DocDBClusterIdentifier=${{ inputs.DOCDB_CLUSTER_IDENTIFIER }}"
@@ -223,9 +252,10 @@ jobs:
             --stack-name hubspot-quickbooks-data \
             --template-file src/data.yaml \
             --capabilities CAPABILITY_NAMED_IAM \
+            --no-fail-on-empty-changeset \
             --parameter-overrides $PARAMS
 
-      - name: Get Data outputs
+      - name: Get Data Stack outputs
         id: get_data
         run: |
           set -euo pipefail

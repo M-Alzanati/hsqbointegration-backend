@@ -63,6 +63,8 @@ Resources:
   DocDBCluster:
     Type: AWS::DocDB::DBCluster
     Condition: CreateNewDocDB
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       MasterUsername: !Ref DocDBMasterUsername
       MasterUserPassword: !Sub "{{resolve:secretsmanager:docdb/password:SecretString:password}}"
