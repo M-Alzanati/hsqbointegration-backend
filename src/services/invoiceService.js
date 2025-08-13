@@ -15,11 +15,22 @@ const {
 async function handleCreateInvoice({ userId, dealId, contactId }) {
   const db = getDB();
   let accessToken, refreshToken, realmId;
+  logMessage("DEBUG", "handleCreateInvoice called", { userId, dealId, contactId });
 
   try {
     const tokenDoc = await db
       .collection(QB_TOKEN_COLLECTION)
       .findOne({ userId });
+    if (!tokenDoc) {
+      logMessage("INFO", "No QuickBooks token document found for user", userId);
+    } else {
+      logMessage("DEBUG", "Loaded QuickBooks token doc for user", {
+        userId,
+        hasAccessToken: !!tokenDoc.accessToken,
+        hasRefreshToken: !!tokenDoc.refreshToken,
+        hasRealmId: !!tokenDoc.realmId,
+      });
+    }
 
     if (!tokenDoc) {
       logMessage("WARN", "QuickBooks not connected for user:", userId);
@@ -43,10 +54,15 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
       "and contact:",
       contactId
     );
+    logMessage("INFO", "Fetching deal and contact from HubSpot", { dealId, contactId });
     const { deal, contact } = await hubspotService.getHubSpotData(
       dealId,
       contactId
     );
+    logMessage("DEBUG", "Fetched HubSpot data", {
+      dealProps: Object.keys(deal || {}),
+      contactProps: Object.keys(contact || {}),
+    });
 
     // Find or create customer in QuickBooks
     logMessage(
@@ -54,18 +70,21 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
       "Finding or creating QuickBooks customer for contact:",
       contactId
     );
-    const customerId = await quickbooksService.getOrCreateCustomer(
+  logMessage("INFO", "Invoking getOrCreateCustomer", { userId, contactEmail: contact?.email });
+  const customerId = await quickbooksService.getOrCreateCustomer(
       realmId,
       accessToken,
       { ...contact, id: contact.hs_object_id },
       refreshToken
     );
+  logMessage("INFO", "QuickBooks customer resolved", { customerId });
 
     // Create invoice in QuickBooks
     logMessage("INFO", "Creating QuickBooks invoice for deal:", dealId);
     deal.id = dealId;
 
-    const { invoiceNumber, invoiceUrl } = await quickbooksService.createInvoice(
+  logMessage("INFO", "Calling createInvoice", { dealId, customerId });
+  const { invoiceNumber, invoiceUrl } = await quickbooksService.createInvoice(
       realmId,
       accessToken,
       refreshToken,
@@ -98,7 +117,9 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
       "Updating HubSpot deal with invoice info for deal:",
       dealId
     );
-    await hubspotService.updateHubSpotDeal(dealId, invoiceNumber, invoiceUrl);
+  logMessage("INFO", "Updating HubSpot deal with invoice data", { dealId, invoiceNumber });
+  await hubspotService.updateHubSpotDeal(dealId, invoiceNumber, invoiceUrl);
+  logMessage("DEBUG", "HubSpot deal updated", { dealId });
 
     // Save invoice to MongoDB
     const invoiceDoc = {
@@ -113,9 +134,22 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
     };
 
     await db.collection(QB_INVOICE_COLLECTION).insertOne(invoiceDoc);
+    logMessage("INFO", "Saved invoice document in DB", {
+      userId,
+      dealId,
+      contactId,
+      customerId,
+      invoiceNumber,
+    });
 
     return { invoiceNumber, invoiceUrl };
   } catch (error) {
+    logMessage("ERROR", "handleCreateInvoice error", {
+      userId,
+      dealId,
+      contactId,
+      message: error?.message,
+    });
     if (error.statusCode === 401) {
       await quickbooksService.handleRefreshToken(userId);
       // Retry logic can be added here
@@ -137,13 +171,7 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
  */
 async function getInvoicesForDeal(dealId, userId) {
   const db = getDB();
-  logMessage(
-    "DEBUG",
-    "Fetching invoices for deal:",
-    dealId,
-    "and user:",
-    userId
-  );
+  logMessage("DEBUG", "getInvoicesForDeal called", { dealId, userId });
 
   try {
     // Get invoices from MongoDB
@@ -151,6 +179,10 @@ async function getInvoicesForDeal(dealId, userId) {
       .collection(QB_INVOICE_COLLECTION)
       .find({ dealId })
       .toArray();
+    logMessage("INFO", "Loaded invoices from DB for deal", {
+      dealId,
+      count: (dbInvoices || []).length,
+    });
 
     if (!dbInvoices || dbInvoices.length === 0) {
       logMessage("INFO", "No invoices found for deal:", dealId);
@@ -160,7 +192,7 @@ async function getInvoicesForDeal(dealId, userId) {
     logMessage("INFO", "Invoices found for deal:", dealId, dbInvoices.length);
 
     // Get QuickBooks tokens
-    const tokenDoc = await db
+  const tokenDoc = await db
       .collection(QB_TOKEN_COLLECTION)
       .findOne({ userId });
 
@@ -190,6 +222,12 @@ async function getInvoicesForDeal(dealId, userId) {
         refreshToken,
         invoiceIds
       );
+    logMessage("DEBUG", "Verified invoices in QuickBooks", {
+      requested: invoiceIds.length,
+      returned: quickbooksInvoiceValidity
+        ? Object.keys(quickbooksInvoiceValidity).length
+        : 0,
+    });
 
     // Only proceed with deletion if validity is a non-empty object
     let invoicesWithValidity = dbInvoices;
@@ -207,7 +245,7 @@ async function getInvoicesForDeal(dealId, userId) {
         )
         .map((inv) => inv._id);
 
-      if (deletedInvoiceIds.length > 0) {
+  if (deletedInvoiceIds.length > 0) {
         await db
           .collection(QB_INVOICE_COLLECTION)
           .deleteMany({ _id: { $in: deletedInvoiceIds } });
@@ -229,6 +267,10 @@ async function getInvoicesForDeal(dealId, userId) {
         .filter((inv) => inv.isValidInQuickBooks);
     }
 
+    logMessage("INFO", "Returning invoices for deal", {
+      dealId,
+      count: (invoicesWithValidity || []).length,
+    });
     return { invoices: invoicesWithValidity };
   } catch (error) {
     logMessage(

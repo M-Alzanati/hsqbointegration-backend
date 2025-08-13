@@ -63,15 +63,21 @@ async function ensureGlobalTokenFresh(db) {
   const expiresAt = computeExpiresAt(tokenDoc.createdAt, tokenDoc.expiresIn);
   if (expiresAt && now < expiresAt - 30_000) {
     // not expired (30s buffer)
+    logMessage("DEBUG", "Global QuickBooks token still valid (buffered)", {
+      expiresAt,
+    });
     return tokenDoc;
   }
 
   // Refresh using stored refresh token
   if (!tokenDoc.refreshToken && !tokenDoc.refresh_token) return tokenDoc;
   const refreshValue = tokenDoc.refreshToken || tokenDoc.refresh_token;
+  logMessage("INFO", "Refreshing global QuickBooks token using refresh token");
   const oauthClient = await getOAuthClient();
   await oauthClient.refreshUsingToken(refreshValue);
-  return await upsertGlobalToken(db, oauthClient.token);
+  const saved = await upsertGlobalToken(db, oauthClient.token);
+  logMessage("INFO", "Global QuickBooks token refreshed and saved");
+  return saved;
 }
 
 async function ensureQuickBooksCreds() {
@@ -84,6 +90,7 @@ async function ensureQuickBooksCreds() {
     cachedQBClientId = process.env.QUICKBOOKS_CLIENT_ID;
     cachedQBClientSecret = process.env.QUICKBOOKS_CLIENT_SECRET;
     credsLoadedAt = now;
+  logMessage("INFO", "Using QuickBooks credentials from environment (dev/local)");
     return;
   }
 
@@ -117,6 +124,12 @@ async function ensureQuickBooksCreds() {
   cachedQBClientId = id || cachedQBClientId;
   cachedQBClientSecret = secret || cachedQBClientSecret;
   credsLoadedAt = now;
+  logMessage("INFO", "Loaded QuickBooks client credentials from Secrets Manager", {
+    idSecretName,
+    keySecretName,
+    hasId: !!cachedQBClientId,
+    hasSecret: !!cachedQBClientSecret,
+  });
 }
 
 async function getOAuthClient() {
@@ -133,6 +146,10 @@ async function getOAuthClient() {
       clientSecret: cachedQBClientSecret,
       environment: process.env.QUICKBOOKS_ENVIRONMENT,
       redirectUri: process.env.QUICKBOOKS_REDIRECT_URI,
+    });
+    logMessage("DEBUG", "Created OAuthClient for QuickBooks", {
+      environment: process.env.QUICKBOOKS_ENVIRONMENT,
+      hasRedirect: !!process.env.QUICKBOOKS_REDIRECT_URI,
     });
   }
 
@@ -702,13 +719,10 @@ async function createInvoice(
 
   const qbo = getQBOInstance(realmId, accessToken, refreshToken);
 
-  console.log(
-    "Creating QuickBooks invoice for customer:",
-    customerId,
-    "with deal amount:",
-    deal.amount,
-    "and deal ID:",
-    deal.id
+  logMessage(
+    "DEBUG",
+    "Creating QuickBooks invoice",
+    { customerId, dealId: deal.id, amount: deal.amount }
   );
   logMessage("DEBUG", "Invoice creation details:", { customerId, deal });
 
