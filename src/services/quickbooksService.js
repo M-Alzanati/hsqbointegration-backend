@@ -143,6 +143,22 @@ async function ensureQuickBooksCreds() {
   );
 }
 
+// Determines if TaxCode should be bypassed based on env or deal flags
+function shouldBypassTaxCode(deal) {
+  const envVal = (process.env.QUICKBOOKS_BYPASS_TAX_CODE || "")
+    .toString()
+    .trim()
+    .toLowerCase();
+  const envBypass = envVal === "true" || envVal === "1" || envVal === "yes";
+  const dealBypass = !!(
+    deal &&
+    (deal.bypassTaxCode === true ||
+      deal.skipTaxCode === true ||
+      deal.taxExempt === true)
+  );
+  return envBypass || dealBypass;
+}
+
 async function getOAuthClient() {
   await ensureQuickBooksCreds();
 
@@ -766,16 +782,23 @@ async function createInvoice(
 
   // Attempt to include a GST/HST TaxCode if company requires it
   let taxCodeId = null;
-  try {
-    taxCodeId = await getPreferredTaxCodeId(qbo);
-    logMessage("DEBUG", "Using TaxCodeId for invoice", taxCodeId);
-  } catch (e) {
-    // If TaxCode retrieval fails, proceed without it; QBO may still accept for some regions
-    logMessage(
-      "WARN",
-      "Could not determine TaxCodeId automatically; proceeding without TaxCodeRef",
-      e?.message || e
-    );
+  const bypassTax = shouldBypassTaxCode(deal);
+  if (bypassTax) {
+    logMessage("INFO", "Bypassing TaxCode for invoice per configuration", {
+      dealId: deal.id,
+    });
+  } else {
+    try {
+      taxCodeId = await getPreferredTaxCodeId(qbo);
+      logMessage("DEBUG", "Using TaxCodeId for invoice", taxCodeId);
+    } catch (e) {
+      // If TaxCode retrieval fails, proceed without it; QBO may still accept for some regions
+      logMessage(
+        "WARN",
+        "Could not determine TaxCodeId automatically; proceeding without TaxCodeRef",
+        e?.message || e
+      );
+    }
   }
 
   const invoiceData = {
@@ -879,12 +902,14 @@ async function getInvoicesForCustomer(
 ) {
   // Create QuickBooks instance
   await ensureQuickBooksCreds();
+
   if (!realmId || !accessToken) {
     const shared = await getGlobalTokens();
     realmId = realmId || shared.realmId;
     accessToken = accessToken || shared.accessToken;
     refreshToken = refreshToken || shared.refreshToken;
   }
+
   const qbo = getQBOInstance(realmId, accessToken, refreshToken);
 
   const query = `SELECT * FROM Invoice WHERE CustomerRef = '${customerId}'`;
@@ -899,6 +924,7 @@ async function getInvoicesForCustomer(
     });
 
     invoices = response.QueryResponse.Invoice || [];
+
     if (dealId) {
       invoices = invoices.filter(
         (inv) => inv.Memo && inv.Memo.includes(dealId)
@@ -927,12 +953,14 @@ async function isInvoiceValidInQuickBooks(
   invoiceId
 ) {
   await ensureQuickBooksCreds();
+
   if (!realmId || !accessToken) {
     const shared = await getGlobalTokens();
     realmId = realmId || shared.realmId;
     accessToken = accessToken || shared.accessToken;
     refreshToken = refreshToken || shared.refreshToken;
   }
+
   const qbo = getQBOInstance(realmId, accessToken, refreshToken);
 
   try {
