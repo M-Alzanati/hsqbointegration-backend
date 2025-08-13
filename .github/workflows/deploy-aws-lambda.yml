@@ -116,28 +116,34 @@ jobs:
             echo "subnet_group_name=$SUBNET_GRP" >> $GITHUB_OUTPUT
           fi
 
-      - name: Detect network (from DocDB subnet group)
+      - name: Detect network (from network stack or DocDB subnet group)
         id: detect_network
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
           SUBNET_GRP: ${{ steps.detect_docdb.outputs.subnet_group_name }}
         run: |
           set -euo pipefail
+          STACK=hubspot-quickbooks-network
+          # Prefer reading from an existing network stack's outputs
+          if aws cloudformation describe-stacks --stack-name "$STACK" >/dev/null 2>&1; then
+            EXISTING_VPC_ID=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='VpcId'].OutputValue" --output text)
+            EXISTING_SUBNET1=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='PrivateSubnet1Id'].OutputValue" --output text)
+            EXISTING_SUBNET2=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='PrivateSubnet2Id'].OutputValue" --output text)
+            if [ -n "${EXISTING_VPC_ID:-}" ]; then echo "existing_vpc_id=$EXISTING_VPC_ID" >> $GITHUB_OUTPUT; fi
+            if [ -n "${EXISTING_SUBNET1:-}" ]; then echo "existing_subnet1_id=$EXISTING_SUBNET1" >> $GITHUB_OUTPUT; fi
+            if [ -n "${EXISTING_SUBNET2:-}" ]; then echo "existing_subnet2_id=$EXISTING_SUBNET2" >> $GITHUB_OUTPUT; fi
+            exit 0
+          fi
+
+          # Fallback: derive from DocDB subnet group if provided
           if [ -n "${SUBNET_GRP:-}" ] && [ "${SUBNET_GRP}" != "null" ]; then
             aws docdb describe-db-subnet-groups --region "$AWS_REGION" --db-subnet-group-name "$SUBNET_GRP" >/tmp/subnetgrp.json
             EXISTING_VPC_ID=$(jq -r '.DBSubnetGroups[0].VpcId' /tmp/subnetgrp.json)
-            # Pick first two subnet IDs deterministically
             EXISTING_SUBNET1=$(jq -r '.DBSubnetGroups[0].Subnets | map(.SubnetIdentifier) | sort | .[0]' /tmp/subnetgrp.json)
             EXISTING_SUBNET2=$(jq -r '.DBSubnetGroups[0].Subnets | map(.SubnetIdentifier) | sort | .[1]' /tmp/subnetgrp.json)
-            if [ -n "${EXISTING_VPC_ID:-}" ]; then
-              echo "existing_vpc_id=$EXISTING_VPC_ID" >> $GITHUB_OUTPUT
-            fi
-            if [ -n "${EXISTING_SUBNET1:-}" ]; then
-              echo "existing_subnet1_id=$EXISTING_SUBNET1" >> $GITHUB_OUTPUT
-            fi
-            if [ -n "${EXISTING_SUBNET2:-}" ]; then
-              echo "existing_subnet2_id=$EXISTING_SUBNET2" >> $GITHUB_OUTPUT
-            fi
+            if [ -n "${EXISTING_VPC_ID:-}" ]; then echo "existing_vpc_id=$EXISTING_VPC_ID" >> $GITHUB_OUTPUT; fi
+            if [ -n "${EXISTING_SUBNET1:-}" ]; then echo "existing_subnet1_id=$EXISTING_SUBNET1" >> $GITHUB_OUTPUT; fi
+            if [ -n "${EXISTING_SUBNET2:-}" ]; then echo "existing_subnet2_id=$EXISTING_SUBNET2" >> $GITHUB_OUTPUT; fi
           fi
 
       - name: Deploy Network stack
