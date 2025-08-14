@@ -15,7 +15,29 @@ let cachedQBClientId = null;
 let cachedQBClientSecret = null;
 let credsLoadedAt = 0;
 let cachedOAuthClient = null;
-const CREDS_TTL = 10 * 60 * 1000; // 10 minutes
+// Allow override via env QUICKBOOKS_CREDS_TTL_MS (ms)
+const CREDS_TTL =
+  Number(process.env.QUICKBOOKS_CREDS_TTL_MS) > 0
+    ? Number(process.env.QUICKBOOKS_CREDS_TTL_MS)
+    : 10 * 60 * 1000; // default 10 minutes
+
+function resetQbCredsCache() {
+  cachedQBClientId = null;
+  cachedQBClientSecret = null;
+  credsLoadedAt = 0;
+  cachedOAuthClient = null;
+}
+
+function isInvalidClientError(err) {
+  // Detect 401 invalid_client patterns from axios/intuit-oauth
+  const status = err?.response?.status || err?.statusCode;
+  const errCode = err?.response?.data?.error || err?.error;
+  const msg = err?.response?.data?.error_description || err?.message || "";
+  return (
+    status === 401 &&
+    (errCode === "invalid_client" || /invalid[_\s-]?client/i.test(msg))
+  );
+}
 
 // Cache for TaxCode lookup (e.g., GST/HST)
 let cachedTaxCodeId = null;
@@ -130,9 +152,14 @@ async function ensureGlobalTokenFresh(db) {
     return null;
   }
 
-  logMessage("DEBUG", "🐛 Global QuickBooks token found", {
+  logMessage("DEBUG", "🐛 Global QuickBooks token document", {
     tokenDoc,
   });
+
+  if (!tokenDoc.accessToken || !tokenDoc.refreshToken) {
+    logMessage("WARN", "⚠️ Global QuickBooks token is missing fields");
+    return null;
+  }
 
   const now = Date.now();
   const expiresAt = computeExpiresAt(tokenDoc.createdAt, tokenDoc.expiresIn);
@@ -203,23 +230,27 @@ async function ensureQuickBooksCreds() {
     process.env.QUICKBOOKS_CLIENT_KEY_SECRET_NAME ||
     process.env.QUICKBOOKS_CLIENT_SECRET_SECRET_NAME;
 
-  const id = await getSecretStringFlexible(idSecretName, [
-    "QUICKBOOKS_CLIENT_ID",
-    "clientId",
-    "CLIENT_ID",
-    "id",
-  ]);
-  const secret = await getSecretStringFlexible(keySecretName, [
-    "QUICKBOOKS_CLIENT_SECRET",
-    "clientSecret",
-    "CLIENT_SECRET",
-    "secret",
-    "key",
-  ]);
+  const id = await getSecretStringFlexible(
+    idSecretName,
+    ["QUICKBOOKS_CLIENT_ID", "clientId", "CLIENT_ID", "id"],
+    CREDS_TTL
+  );
+  const secret = await getSecretStringFlexible(
+    keySecretName,
+    [
+      "QUICKBOOKS_CLIENT_SECRET",
+      "clientSecret",
+      "CLIENT_SECRET",
+      "secret",
+      "key",
+    ],
+    CREDS_TTL
+  );
 
   cachedQBClientId = id || cachedQBClientId;
   cachedQBClientSecret = secret || cachedQBClientSecret;
   credsLoadedAt = now;
+
   logMessage(
     "INFO",
     "🔐 Loaded QuickBooks client credentials from Secrets Manager",
@@ -255,16 +286,18 @@ async function getOAuthClient() {
     throw new Error("Missing QuickBooks client credentials");
   }
 
-  // Recreate client if missing or credentials may have rotated
-  if (!cachedOAuthClient) {
+  // Recreate client if missing or credentials/env/redirect changed (supports runtime rotation)
+  const credsKey = `${cachedQBClientId}:${cachedQBClientSecret}:${process.env.QUICKBOOKS_ENVIRONMENT}:${process.env.QUICKBOOKS_REDIRECT_URI || ""}`;
+  if (!cachedOAuthClient || cachedOAuthClient.__credsKey !== credsKey) {
     cachedOAuthClient = new OAuthClient({
       clientId: cachedQBClientId,
       clientSecret: cachedQBClientSecret,
       environment: process.env.QUICKBOOKS_ENVIRONMENT,
       redirectUri: process.env.QUICKBOOKS_REDIRECT_URI,
     });
+    cachedOAuthClient.__credsKey = credsKey;
 
-    logMessage("DEBUG", "🐛 Created OAuthClient for QuickBooks", {
+    logMessage("DEBUG", "🐛 Created OAuthClient for QuickBooks (refreshed)", {
       environment: process.env.QUICKBOOKS_ENVIRONMENT,
       hasRedirect: !!process.env.QUICKBOOKS_REDIRECT_URI,
     });
@@ -506,8 +539,24 @@ async function handleCallback(parseRedirectUrl, code, state) {
       parseRedirectUrl,
     });
 
-    const oauthClient = await getOAuthClient();
-    await oauthClient.createToken(parseRedirectUrl);
+    let oauthClient = await getOAuthClient();
+    try {
+      await oauthClient.createToken(parseRedirectUrl);
+    } catch (e) {
+      if (isInvalidClientError(e)) {
+        // Secrets might have rotated; clear caches and retry once
+        logMessage(
+          "WARN",
+          "⚠️ invalid_client during createToken — reloading credentials and retrying once"
+        );
+        resetQbCredsCache();
+        oauthClient = await getOAuthClient();
+        await oauthClient.createToken(parseRedirectUrl);
+      } else {
+        throw e;
+      }
+    }
+
     logMessage("DEBUG", "🐛 OAuth client after createToken:", {
       hasToken: !!oauthClient.token,
       tokenKeys: oauthClient.token ? Object.keys(oauthClient.token) : [],
@@ -607,10 +656,27 @@ async function handleRefreshToken(userId) {
       };
     }
 
-    const oauthClient = await getOAuthClient();
-    await oauthClient.refreshUsingToken(
-      tokenDoc.refreshToken || tokenDoc.refresh_token
-    );
+    let oauthClient = await getOAuthClient();
+    try {
+      await oauthClient.refreshUsingToken(
+        tokenDoc.refreshToken || tokenDoc.refresh_token
+      );
+    } catch (e) {
+      if (isInvalidClientError(e)) {
+        logMessage(
+          "WARN",
+          "⚠️ invalid_client during refreshUsingToken — reloading credentials and retrying once"
+        );
+        resetQbCredsCache();
+        oauthClient = await getOAuthClient();
+        await oauthClient.refreshUsingToken(
+          tokenDoc.refreshToken || tokenDoc.refresh_token
+        );
+      } else {
+        throw e;
+      }
+    }
+
     await upsertGlobalToken(db, oauthClient.token);
 
     logMessage("INFO", `✅ Refreshed global QuickBooks token`);

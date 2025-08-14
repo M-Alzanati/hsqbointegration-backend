@@ -59,8 +59,8 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
     );
 
     logMessage("DEBUG", "🐛 Fetched HubSpot data", {
-      dealProps: Object.keys(deal || {}),
-      contactProps: Object.keys(contact || {}),
+      deal,
+      contact,
     });
 
     // Find or create customer in QuickBooks
