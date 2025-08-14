@@ -151,8 +151,11 @@ async function ensureGlobalTokenFresh(db) {
 
   // Refresh using stored refresh token
   if (!tokenDoc.refreshToken && !tokenDoc.refresh_token) {
-    logMessage("DEBUG", "🐛 Global QuickBooks token needs refresh (no refresh token)");
-    return tokenDoc;
+    logMessage(
+      "DEBUG",
+      "🐛 Global QuickBooks token needs refresh (no refresh token)"
+    );
+    return null;
   }
 
   const refreshValue = tokenDoc.refreshToken || tokenDoc.refresh_token;
@@ -423,6 +426,7 @@ async function checkConnection(userId) {
 
   try {
     const fresh = await ensureGlobalTokenFresh(db);
+
     if (!fresh) {
       logMessage("INFO", "ℹ️ No global QuickBooks token present yet.");
       return { connected: false, authUrl };
@@ -585,11 +589,13 @@ async function handleRefreshToken(userId) {
 async function getGlobalTokens() {
   const db = getDB();
   const fresh = await ensureGlobalTokenFresh(db);
+
   if (!fresh) {
     throw new Error(
       "No global QuickBooks token available. Admin must authorize first."
     );
   }
+
   return {
     accessToken: fresh.accessToken || fresh.access_token,
     refreshToken: fresh.refreshToken || fresh.refresh_token,
