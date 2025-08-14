@@ -1,4 +1,4 @@
-name: Deploy Bastion (EC2) and optional DocDB attach
+name: Deploy Bastion (EC2) and optional DocDB instance attach 
 
 on:
   workflow_dispatch:
