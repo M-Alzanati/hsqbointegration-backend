@@ -55,6 +55,7 @@ async function getHubSpotData(dealId, contactId) {
   const dealResponse = await hubspotClient.crm.deals.basicApi.getById(dealId, [
     "amount",
     "job_completion_date",
+    "description",
   ]);
   logMessage("DEBUG", "📄 Fetched HubSpot deal", { dealId });
 

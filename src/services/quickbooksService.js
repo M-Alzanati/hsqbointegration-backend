@@ -311,6 +311,48 @@ function parseQboError(err) {
   };
 }
 
+// Helper: format Date to YYYY-MM-DD (UTC)
+function formatDateYYYYMMDD(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (isNaN(d.getTime())) return undefined;
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+// Helper: find Term ID by name (e.g., "Net 15")
+async function getTermIdByName(qbo, name) {
+  // try SDK direct if available
+  if (typeof qbo.findTerms === "function") {
+    const list = await new Promise((resolve, reject) => {
+      qbo.findTerms({}, (err, data) => {
+        if (err) return reject(err);
+        resolve(data);
+      });
+    });
+    const terms = list?.QueryResponse?.Term || [];
+    const found = terms.find((t) => t?.Name === name && t?.Active !== false);
+    return found ? String(found.Id) : null;
+  }
+
+  // fallback to query
+  if (typeof qbo.query === "function") {
+    const query = `SELECT Id, Name, Active FROM Term WHERE Name = '${name}'`;
+    const res = await new Promise((resolve, reject) => {
+      qbo.query(query, (err, data) => {
+        if (err) return reject(err);
+        resolve(data);
+      });
+    });
+    const terms = res?.QueryResponse?.Term || [];
+    const found = terms.find((t) => t?.Name === name && t?.Active !== false);
+    return found ? String(found.Id) : null;
+  }
+
+  return null;
+}
+
 /**
  * Find a preferred TaxCode ID (e.g., GST/HST) for the company. Tries env QUICKBOOKS_TAX_CODE_NAMES
  * as a comma-separated list of names to match first. Falls back to searching for common Canadian
@@ -915,6 +957,34 @@ async function createInvoice(
     return `${yyyy}-${mm}-${dd}`;
   })();
 
+  // Terms: Prefer SalesTermRef for "Net 15"; fallback to DueDate = base + 15 days
+  let salesTermRefId = null;
+  let dueDateStr = undefined;
+  try {
+    salesTermRefId = await getTermIdByName(qbo, "Net 15");
+  } catch (e) {
+    logMessage(
+      "WARN",
+      "⚠️ Failed to lookup Terms (Net 15), will fallback",
+      e?.message || e
+    );
+  }
+
+  if (!salesTermRefId) {
+    const base = serviceDate
+      ? new Date(`${serviceDate}T00:00:00Z`)
+      : new Date();
+    base.setUTCDate(base.getUTCDate() + 15);
+    dueDateStr = formatDateYYYYMMDD(base);
+  }
+
+  const description = (() => {
+    const raw = deal?.description;
+    if (raw == null) return undefined;
+    const str = String(raw).trim();
+    return str.length > 0 ? str : undefined;
+  })();
+
   const invoiceData = {
     Line: [
       {
@@ -927,6 +997,7 @@ async function createInvoice(
           ...(serviceDate ? { ServiceDate: serviceDate } : {}),
           ...(taxCodeId ? { TaxCodeRef: { value: taxCodeId } } : {}),
         },
+        ...(description ? { Description: description } : {}),
       },
     ],
     CustomerRef: { value: customerId },
@@ -935,6 +1006,12 @@ async function createInvoice(
           BillEmail: { Address: String(customerEmail) },
         }
       : {}),
+    ...(description ? { CustomerMemo: { value: description } } : {}),
+    ...(salesTermRefId
+      ? { SalesTermRef: { value: salesTermRefId } }
+      : dueDateStr
+        ? { DueDate: dueDateStr }
+        : {}),
     ...(taxCodeId
       ? {
           TxnTaxDetail: {
