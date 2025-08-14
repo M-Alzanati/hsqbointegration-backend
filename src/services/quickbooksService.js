@@ -63,13 +63,19 @@ async function invalidateGlobalToken(mode = "expire") {
   }
 
   if (mode === "refreshNow") {
-    logMessage("INFO", "🔄 Forcing immediate refresh of global QuickBooks token");
+    logMessage(
+      "INFO",
+      "🔄 Forcing immediate refresh of global QuickBooks token"
+    );
     const result = await module.exports.handleRefreshToken("");
     return result;
   }
 
   if (mode === "revoke") {
-    logMessage("INFO", "⚠️ Revoking global QuickBooks tokens (requires re-auth)");
+    logMessage(
+      "INFO",
+      "⚠️ Revoking global QuickBooks tokens (requires re-auth)"
+    );
     await db.collection(QB_TOKEN_COLLECTION).updateOne(
       { key: GLOBAL_TOKEN_KEY },
       {
@@ -88,7 +94,10 @@ async function invalidateGlobalToken(mode = "expire") {
   }
 
   // Default: expire access token to force refresh on next use
-  logMessage("INFO", "ℹ️ Expiring global QuickBooks access token to force refresh");
+  logMessage(
+    "INFO",
+    "ℹ️ Expiring global QuickBooks access token to force refresh"
+  );
   await db.collection(QB_TOKEN_COLLECTION).updateOne(
     { key: GLOBAL_TOKEN_KEY },
     {
@@ -104,7 +113,10 @@ async function invalidateGlobalToken(mode = "expire") {
 
 function computeExpiresAt(createdAt, expiresInSec) {
   try {
-    if (!createdAt || !expiresInSec) return 0;
+    if (!createdAt || !expiresInSec) {
+      return 0;
+    }
+
     const base = new Date(createdAt).getTime();
     return base + Number(expiresInSec) * 1000;
   } catch {
@@ -114,23 +126,42 @@ function computeExpiresAt(createdAt, expiresInSec) {
 
 async function ensureGlobalTokenFresh(db) {
   const tokenDoc = await getGlobalTokenDoc(db);
-  if (!tokenDoc) return null;
+  if (!tokenDoc) {
+    return null;
+  }
+
+  logMessage("DEBUG", "🐛 Global QuickBooks token found", {
+    tokenDoc,
+  });
 
   const now = Date.now();
   const expiresAt = computeExpiresAt(tokenDoc.createdAt, tokenDoc.expiresIn);
+  logMessage("DEBUG", "🐛 Global QuickBooks token expiration check", {
+    expiresAt,
+  });
+
   if (expiresAt && now < expiresAt - 30_000) {
     // not expired (30s buffer)
-  logMessage("DEBUG", "🐛 Global QuickBooks token still valid (buffered)", {
+    logMessage("DEBUG", "🐛 Global QuickBooks token still valid (buffered)", {
       expiresAt,
     });
+
     return tokenDoc;
   }
 
   // Refresh using stored refresh token
-  if (!tokenDoc.refreshToken && !tokenDoc.refresh_token) return tokenDoc;
+  if (!tokenDoc.refreshToken && !tokenDoc.refresh_token) {
+    logMessage("DEBUG", "🐛 Global QuickBooks token needs refresh (no refresh token)");
+    return tokenDoc;
+  }
+
   const refreshValue = tokenDoc.refreshToken || tokenDoc.refresh_token;
 
-  logMessage("INFO", "🔄 Refreshing global QuickBooks token using refresh token");
+  logMessage(
+    "INFO",
+    "🔄 Refreshing global QuickBooks token using refresh token"
+  );
+
   const oauthClient = await getOAuthClient();
   await oauthClient.refreshUsingToken(refreshValue);
   const saved = await upsertGlobalToken(db, oauthClient.token);
@@ -229,7 +260,7 @@ async function getOAuthClient() {
       environment: process.env.QUICKBOOKS_ENVIRONMENT,
       redirectUri: process.env.QUICKBOOKS_REDIRECT_URI,
     });
-  logMessage("DEBUG", "🐛 Created OAuthClient for QuickBooks", {
+    logMessage("DEBUG", "🐛 Created OAuthClient for QuickBooks", {
       environment: process.env.QUICKBOOKS_ENVIRONMENT,
       hasRedirect: !!process.env.QUICKBOOKS_REDIRECT_URI,
     });
@@ -393,14 +424,14 @@ async function checkConnection(userId) {
   try {
     const fresh = await ensureGlobalTokenFresh(db);
     if (!fresh) {
-  logMessage("INFO", "ℹ️ No global QuickBooks token present yet.");
+      logMessage("INFO", "ℹ️ No global QuickBooks token present yet.");
       return { connected: false, authUrl };
     }
 
     logMessage("INFO", "✅ Global QuickBooks token is available");
     return { connected: true, authUrl };
   } catch (error) {
-  logMessage("ERROR", "❌ checkConnection (global) error:", error);
+    logMessage("ERROR", "❌ checkConnection (global) error:", error);
     return { connected: false, authUrl };
   }
 }
@@ -430,7 +461,7 @@ async function handleCallback(parseRedirectUrl, code, state) {
 
     const oauthClient = await getOAuthClient();
     await oauthClient.createToken(parseRedirectUrl);
-  logMessage("DEBUG", "🐛 OAuth client after createToken:", {
+    logMessage("DEBUG", "🐛 OAuth client after createToken:", {
       hasToken: !!oauthClient.token,
       tokenKeys: oauthClient.token ? Object.keys(oauthClient.token) : [],
     });
@@ -535,10 +566,10 @@ async function handleRefreshToken(userId) {
     );
     await upsertGlobalToken(db, oauthClient.token);
 
-  logMessage("INFO", `✅ Refreshed global QuickBooks token`);
+    logMessage("INFO", `✅ Refreshed global QuickBooks token`);
     return { success: true };
   } catch (error) {
-  logMessage("ERROR", "❌ Global token refresh error:", error);
+    logMessage("ERROR", "❌ Global token refresh error:", error);
     return {
       success: false,
       status: 500,
@@ -590,7 +621,7 @@ async function getOrCreateCustomer(
   }
   logMessage(
     "DEBUG",
-  "🐛 Creating QuickBooks instance for customer lookup/creation",
+    "🐛 Creating QuickBooks instance for customer lookup/creation",
     {
       realmId,
       hasAccessToken: !!accessToken,
@@ -1127,7 +1158,7 @@ async function verifyInvoicesInQuickBooks(
   } catch (e) {
     logMessage("ERROR", "❌ Error verifying invoices in QuickBooks:", e);
     // If error, mark all as valid since we can't determine their status
-  logMessage("DEBUG", "⚠️ Returning all invoiceIds as valid due to error");
+    logMessage("DEBUG", "⚠️ Returning all invoiceIds as valid due to error");
     return invoiceIds.reduce((acc, id) => {
       acc[id] = true;
       return acc;
