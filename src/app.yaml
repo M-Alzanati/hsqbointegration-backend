@@ -199,7 +199,6 @@ Resources:
           QUICKBOOKS_CLIENT_ID_SECRET_NAME: quickbooks/client/id
           QUICKBOOKS_CLIENT_KEY_SECRET_NAME: quickbooks/client/secret
           QUICKBOOKS_ENVIRONMENT: !Ref QuickBooksEnvironment
-          HUBSPOT_API_KEY_SECRET_NAME: hubspot/api/key
 
   LambdaApiInvokePermission:
     Type: AWS::Lambda::Permission
