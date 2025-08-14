@@ -1,4 +1,4 @@
-name: Deploy Bastion (EC2) and optional DocDB instance attach 
+name: Deploy Bastion (EC2) and optional DocDB attach 
 
 on:
   workflow_dispatch:
@@ -38,23 +38,11 @@ on:
         description: "Stack name for bastion"
         required: false
         default: "hubspot-quickbooks-bastion"
-      # Optional attach-to-existing-DocDB inputs
+      # Optional attach-to-existing-DocDB input (kept under 10 total inputs)
       EXISTING_DOCDB_SG_ID:
         description: "Existing DocDB Security Group Id (optional, triggers attach)"
         required: false
         default: ""
-      EXISTING_DOCDB_CLUSTER_IDENTIFIER:
-        description: "Existing DocDB Cluster Identifier (for outputs)"
-        required: false
-        default: ""
-      EXISTING_DOCDB_CLUSTER_ENDPOINT:
-        description: "Existing DocDB Cluster Endpoint"
-        required: false
-        default: ""
-      DATA_ATTACH_STACK_NAME:
-        description: "Stack name for data attach"
-        required: false
-        default: "hubspot-quickbooks-data-attach"
 
 jobs:
   deploy-bastion:
@@ -145,10 +133,8 @@ jobs:
         if: ${{ inputs.EXISTING_DOCDB_SG_ID != '' }}
         shell: bash
         env:
-          STACK_NAME: ${{ inputs.DATA_ATTACH_STACK_NAME }}
+          STACK_NAME: hubspot-quickbooks-data-attach
           EXISTING_DOCDB_SG_ID: ${{ inputs.EXISTING_DOCDB_SG_ID }}
-          EXISTING_DOCDB_CLUSTER_IDENTIFIER: ${{ inputs.EXISTING_DOCDB_CLUSTER_IDENTIFIER }}
-          EXISTING_DOCDB_CLUSTER_ENDPOINT: ${{ inputs.EXISTING_DOCDB_CLUSTER_ENDPOINT }}
           BASTION_SG_ID: ${{ steps.deploy_bastion.outputs.bastion_sg_id }}
         run: |
           set -euo pipefail
@@ -162,6 +148,6 @@ jobs:
             --template-file src/data-attach.yaml \
             --parameter-overrides \
               ExistingDocDBSecurityGroupId="$EXISTING_DOCDB_SG_ID" \
-              ExistingDocDBClusterIdentifier="$EXISTING_DOCDB_CLUSTER_IDENTIFIER" \
-              ExistingDocDBClusterEndpoint="$EXISTING_DOCDB_CLUSTER_ENDPOINT" \
+              ExistingDocDBClusterIdentifier="" \
+              ExistingDocDBClusterEndpoint="" \
               BastionSecurityGroupId="$BASTION_SG_ID"
