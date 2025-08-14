@@ -92,6 +92,43 @@ Resources:
                   - logs:DescribeLogStreams
                 Resource: "*"
 
+  AdminInvalidateLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        - PolicyName: AdminInvalidateAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DeleteNetworkInterface
+                Resource: "*"
+
   HubspotQuickbookApiLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -122,10 +159,46 @@ Resources:
           QUICKBOOKS_CLIENT_ID_SECRET_NAME: quickbooks/client/id
           QUICKBOOKS_CLIENT_KEY_SECRET_NAME: quickbooks/client/secret
           QUICKBOOKS_REDIRECT_URI: !Sub "https://${HubspotQuickbookApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/quickbooks/callback"
-          QUICKBOOKS_APP_URL: !If [ IsProd, "https://app.qbo.intuit.com/app/invoice", "https://sandbox.qbo.intuit.com/app/invoice" ]
+          QUICKBOOKS_APP_URL:
+            !If [
+              IsProd,
+              "https://app.qbo.intuit.com/app/invoice",
+              "https://sandbox.qbo.intuit.com/app/invoice",
+            ]
           QUICKBOOKS_ENVIRONMENT: !Ref QuickBooksEnvironment
           QUICKBOOKS_TAX_CODE_ID: "GST/HST"
           QUICKBOOKS_BYPASS_TAX_CODE: false
+          HUBSPOT_API_KEY_SECRET_NAME: hubspot/api/key
+
+  AdminInvalidateLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "HubspotQuickbookAdminInvalidate-${StageName}"
+      Handler: adminInvalidate.handler
+      Role: !GetAtt AdminInvalidateLambdaRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaDeploymentBucket
+        S3Key: !Ref LambdaS3Key
+      Runtime: nodejs22.x
+      MemorySize: 256
+      Timeout: 30
+      VpcConfig:
+        SubnetIds:
+          - !ImportValue hsqbo:network:PrivateSubnet1Id
+          - !ImportValue hsqbo:network:PrivateSubnet2Id
+        SecurityGroupIds:
+          - !ImportValue hsqbo:network:LambdaSecurityGroupId
+      Environment:
+        Variables:
+          DOCDB_USERNAME: !Ref DocDBMasterUsername
+          DOCDB_ENDPOINT: !Ref DocDBClusterEndpoint
+          DOCDB_DBNAME: !Ref DocDBClusterIdentifier
+          DOCDB_OPTIONS: !Ref DocDBOptions
+          DOCDB_PASSWORD_SECRET_NAME: docdb/password
+          QBO_GLOBAL_TOKEN_KEY: "GLOBAL_QBE_PROD"
+          QUICKBOOKS_CLIENT_ID_SECRET_NAME: quickbooks/client/id
+          QUICKBOOKS_CLIENT_KEY_SECRET_NAME: quickbooks/client/secret
+          QUICKBOOKS_ENVIRONMENT: !Ref QuickBooksEnvironment
           HUBSPOT_API_KEY_SECRET_NAME: hubspot/api/key
 
   LambdaApiInvokePermission:
