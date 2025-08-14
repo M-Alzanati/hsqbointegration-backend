@@ -818,7 +818,8 @@ async function createInvoice(
   accessToken,
   refreshToken,
   customerId,
-  deal
+  deal,
+  customerEmail
 ) {
   await ensureQuickBooksCreds();
   // Use shared company tokens if not supplied
@@ -893,6 +894,27 @@ async function createInvoice(
     }
   }
 
+  // Normalize HubSpot deal job_completion_date -> ServiceDate (YYYY-MM-DD)
+  const serviceDate = (() => {
+    const raw = deal?.job_completion_date;
+    if (!raw) return undefined;
+    // HubSpot often stores datetimes as ms epoch strings; also support ISO/date strings
+    let d;
+    if (typeof raw === "number") {
+      d = new Date(raw);
+    } else if (/^\d{10,13}$/.test(String(raw))) {
+      const ms = String(raw).length === 13 ? Number(raw) : Number(raw) * 1000;
+      d = new Date(ms);
+    } else {
+      d = new Date(String(raw));
+    }
+    if (isNaN(d.getTime())) return undefined;
+    const yyyy = d.getUTCFullYear();
+    const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(d.getUTCDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  })();
+
   const invoiceData = {
     Line: [
       {
@@ -902,11 +924,17 @@ async function createInvoice(
           ItemRef: { value: itemId },
           Qty: qty,
           UnitPrice: unitPrice,
+          ...(serviceDate ? { ServiceDate: serviceDate } : {}),
           ...(taxCodeId ? { TaxCodeRef: { value: taxCodeId } } : {}),
         },
       },
     ],
     CustomerRef: { value: customerId },
+    ...(customerEmail
+      ? {
+          BillEmail: { Address: String(customerEmail) },
+        }
+      : {}),
     ...(taxCodeId
       ? {
           TxnTaxDetail: {

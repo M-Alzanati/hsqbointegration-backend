@@ -47,15 +47,18 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
       "and contact:",
       contactId
     );
+
     logMessage("INFO", "🔄 Fetching deal and contact from HubSpot", {
       dealId,
       contactId,
     });
+
     const { deal, contact } = await hubspotService.getHubSpotData(
       dealId,
       contactId
     );
-  logMessage("DEBUG", "🐛 Fetched HubSpot data", {
+
+    logMessage("DEBUG", "🐛 Fetched HubSpot data", {
       dealProps: Object.keys(deal || {}),
       contactProps: Object.keys(contact || {}),
     });
@@ -70,25 +73,35 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
       userId,
       contactEmail: contact?.email,
     });
+
     const customerId = await quickbooksService.getOrCreateCustomer(
       realmId,
       accessToken,
       { ...contact, id: contact.hs_object_id },
       refreshToken
     );
-  logMessage("INFO", "✅ QuickBooks customer resolved", { customerId });
+    logMessage("INFO", "✅ QuickBooks customer resolved", { customerId });
 
     // Create invoice in QuickBooks
-  logMessage("INFO", "🔄 Creating QuickBooks invoice for deal:", dealId);
+    logMessage("INFO", "🔄 Creating QuickBooks invoice for deal:", dealId);
     deal.id = dealId;
 
-  logMessage("INFO", "🔄 Calling createInvoice", { dealId, customerId });
+    logMessage("INFO", "🔄 Calling createInvoice", { dealId, customerId });
+    // Ensure job_completion_date from HubSpot deal is available for ServiceDate mapping
+    if (deal && deal.job_completion_date) {
+      logMessage("DEBUG", "📄 job_completion_date found on deal", {
+        dealId,
+        job_completion_date: deal.job_completion_date,
+      });
+    }
+
     const { invoiceNumber, invoiceUrl } = await quickbooksService.createInvoice(
       realmId,
       accessToken,
       refreshToken,
       customerId,
-      deal
+      deal,
+      contact?.email
     );
 
     if (!invoiceNumber || !invoiceUrl) {
@@ -122,7 +135,7 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
     });
 
     await hubspotService.updateHubSpotDeal(dealId, invoiceNumber, invoiceUrl);
-  logMessage("DEBUG", "✅ HubSpot deal updated", { dealId });
+    logMessage("DEBUG", "✅ HubSpot deal updated", { dealId });
 
     // Save invoice to MongoDB
     const invoiceDoc = {
@@ -137,7 +150,7 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
     };
 
     await db.collection(QB_INVOICE_COLLECTION).insertOne(invoiceDoc);
-  logMessage("INFO", "✅ Saved invoice document in DB", {
+    logMessage("INFO", "✅ Saved invoice document in DB", {
       userId,
       dealId,
       contactId,
@@ -147,7 +160,7 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
 
     return { invoiceNumber, invoiceUrl };
   } catch (error) {
-  logMessage("ERROR", "❌ handleCreateInvoice error", {
+    logMessage("ERROR", "❌ handleCreateInvoice error", {
       userId,
       dealId,
       contactId,
@@ -182,7 +195,7 @@ async function getInvoicesForDeal(dealId, userId) {
       .collection(QB_INVOICE_COLLECTION)
       .find({ dealId })
       .toArray();
-  logMessage("INFO", "📄 Loaded invoices from DB for deal", {
+    logMessage("INFO", "📄 Loaded invoices from DB for deal", {
       dealId,
       count: (dbInvoices || []).length,
     });
@@ -192,7 +205,12 @@ async function getInvoicesForDeal(dealId, userId) {
       return { invoices: [], quickbooksInvoices: [] };
     }
 
-    logMessage("INFO", "📄 Invoices found for deal:", dealId, dbInvoices.length);
+    logMessage(
+      "INFO",
+      "📄 Invoices found for deal:",
+      dealId,
+      dbInvoices.length
+    );
 
     // Get global QuickBooks tokens
     const globalTokens = await quickbooksService.getGlobalTokens();
@@ -226,7 +244,7 @@ async function getInvoicesForDeal(dealId, userId) {
         refreshToken,
         invoiceIds
       );
-  logMessage("DEBUG", "🐛 Verified invoices in QuickBooks", {
+    logMessage("DEBUG", "🐛 Verified invoices in QuickBooks", {
       requested: invoiceIds.length,
       returned: quickbooksInvoiceValidity
         ? Object.keys(quickbooksInvoiceValidity).length
@@ -271,7 +289,7 @@ async function getInvoicesForDeal(dealId, userId) {
         .filter((inv) => inv.isValidInQuickBooks);
     }
 
-  logMessage("INFO", "✅ Returning invoices for deal", {
+    logMessage("INFO", "✅ Returning invoices for deal", {
       dealId,
       count: (invoicesWithValidity || []).length,
     });

@@ -10,12 +10,12 @@ const HUBSPOT_TTL = 10 * 60 * 1000;
 async function getHubspotAccessToken() {
   // Prefer direct env var for local/dev
   if (process.env.HUBSPOT_API_KEY) {
-  logMessage("INFO", "ℹ️ Using HubSpot token from environment (dev/local)");
+    logMessage("INFO", "ℹ️ Using HubSpot token from environment (dev/local)");
     return process.env.HUBSPOT_API_KEY;
   }
   const now = Date.now();
   if (cachedHubspotToken && now - hubspotLoadedAt < HUBSPOT_TTL) {
-  logMessage("DEBUG", "🐛 Using cached HubSpot token");
+    logMessage("DEBUG", "🐛 Using cached HubSpot token");
     return cachedHubspotToken;
   }
 
@@ -54,6 +54,7 @@ async function getHubSpotData(dealId, contactId) {
   const hubspotClient = await getHubspotClient();
   const dealResponse = await hubspotClient.crm.deals.basicApi.getById(dealId, [
     "amount",
+    "job_completion_date",
   ]);
   logMessage("DEBUG", "📄 Fetched HubSpot deal", { dealId });
 
