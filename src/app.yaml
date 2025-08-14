@@ -166,7 +166,7 @@ Resources:
               "https://sandbox.qbo.intuit.com/app/invoice",
             ]
           QUICKBOOKS_ENVIRONMENT: !Ref QuickBooksEnvironment
-          QUICKBOOKS_TAX_CODE_ID: "GST/HST"
+          QUICKBOOKS_TAX_CODE_NAMES: "GST/HST"
           QUICKBOOKS_BYPASS_TAX_CODE: false
           HUBSPOT_API_KEY_SECRET_NAME: hubspot/api/key
 

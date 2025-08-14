@@ -152,10 +152,6 @@ async function ensureGlobalTokenFresh(db) {
     return null;
   }
 
-  logMessage("DEBUG", "🐛 Global QuickBooks token document", {
-    tokenDoc,
-  });
-
   if (!tokenDoc.accessToken || !tokenDoc.refreshToken) {
     logMessage("WARN", "⚠️ Global QuickBooks token is missing fields");
     return null;
@@ -269,6 +265,7 @@ function shouldBypassTaxCode(deal) {
     .toString()
     .trim()
     .toLowerCase();
+
   const envBypass = envVal === "true" || envVal === "1" || envVal === "yes";
   const dealBypass = !!(
     deal &&
@@ -276,6 +273,7 @@ function shouldBypassTaxCode(deal) {
       deal.skipTaxCode === true ||
       deal.taxExempt === true)
   );
+
   return envBypass || dealBypass;
 }
 
