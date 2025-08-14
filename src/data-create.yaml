@@ -11,6 +11,13 @@ Parameters:
   DocDBClusterIdentifier:
     Type: String
     Default: quickbooks-hubspot-cluster
+  BastionSecurityGroupId:
+    Type: String
+    Default: ""
+    Description: Optional - Security Group ID of a bastion host to allow DocDB access
+
+Conditions:
+  HasBastion: !Not [!Equals [!Ref BastionSecurityGroupId, ""]]
 
 Resources:
   DocDBSecurityGroup:
@@ -23,6 +30,16 @@ Resources:
           FromPort: 27017
           ToPort: 27017
           SourceSecurityGroupId: !ImportValue 'hsqbo:network:LambdaSecurityGroupId'
+
+  DocDBBastionIngress:
+    Condition: HasBastion
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref DocDBSecurityGroup
+      IpProtocol: tcp
+      FromPort: 27017
+      ToPort: 27017
+      SourceSecurityGroupId: !Ref BastionSecurityGroupId
 
   DocDBSubnetGroup:
     Type: AWS::DocDB::DBSubnetGroup

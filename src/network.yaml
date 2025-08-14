@@ -176,3 +176,8 @@ Outputs:
     Value: !Ref LambdaSecurityGroup
     Export:
       Name: hsqbo:network:LambdaSecurityGroupId
+  PublicSubnet1Id:
+    Condition: CreateNewNetwork
+    Value: !Ref PublicSubnet1
+    Export:
+      Name: hsqbo:network:PublicSubnet1Id

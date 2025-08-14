@@ -1,0 +1,167 @@
+name: Deploy Bastion (EC2) and optional DocDB attach
+
+on:
+  workflow_dispatch:
+    inputs:
+      AWS_REGION:
+        description: "AWS Region"
+        required: false
+        default: "us-east-1"
+      VPC_ID:
+        description: "VPC Id (if empty, will use Export hsqbo:network:VpcId)"
+        required: false
+        default: ""
+      PUBLIC_SUBNET_ID:
+        description: "Public Subnet Id for bastion (if empty, will use Export hsqbo:network:PublicSubnet1Id)"
+        required: false
+        default: ""
+      BASTION_KEY_NAME:
+        description: "EC2 KeyPair name for SSH (.pem you hold)"
+        required: true
+      BASTION_ALLOWED_CIDR:
+        description: "CIDR allowed to SSH to bastion (e.g., x.x.x.x/32)"
+        required: false
+        default: "0.0.0.0/0"
+      INSTANCE_TYPE:
+        description: "Bastion instance type"
+        required: false
+        default: "t3.micro"
+      ENABLE_SSM:
+        description: "Enable SSM on bastion (true/false)"
+        required: false
+        default: "true"
+      ASSIGN_EIP:
+        description: "Assign Elastic IP to bastion (true/false)"
+        required: false
+        default: "false"
+      BASTION_STACK_NAME:
+        description: "Stack name for bastion"
+        required: false
+        default: "hubspot-quickbooks-bastion"
+      # Optional attach-to-existing-DocDB inputs
+      EXISTING_DOCDB_SG_ID:
+        description: "Existing DocDB Security Group Id (optional, triggers attach)"
+        required: false
+        default: ""
+      EXISTING_DOCDB_CLUSTER_IDENTIFIER:
+        description: "Existing DocDB Cluster Identifier (for outputs)"
+        required: false
+        default: ""
+      EXISTING_DOCDB_CLUSTER_ENDPOINT:
+        description: "Existing DocDB Cluster Endpoint"
+        required: false
+        default: ""
+      DATA_ATTACH_STACK_NAME:
+        description: "Stack name for data attach"
+        required: false
+        default: "hubspot-quickbooks-data-attach"
+
+jobs:
+  deploy-bastion:
+    name: Deploy Bastion
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ inputs.AWS_REGION }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Ensure jq is available
+        run: |
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y jq
+          fi
+
+      - name: Resolve VPC and Public Subnet
+        id: resolve_net
+        shell: bash
+        run: |
+          set -euo pipefail
+          VPC_ID_INPUT='${{ inputs.VPC_ID }}'
+          PUB_SUBNET_INPUT='${{ inputs.PUBLIC_SUBNET_ID }}'
+          VPC_ID="$VPC_ID_INPUT"
+          PUBLIC_SUBNET_ID="$PUB_SUBNET_INPUT"
+
+          if [ -z "$VPC_ID" ]; then
+            VPC_ID=$(aws cloudformation list-exports --query "Exports[?Name=='hsqbo:network:VpcId'].Value" --output text || true)
+          fi
+          if [ -z "$PUBLIC_SUBNET_ID" ]; then
+            PUBLIC_SUBNET_ID=$(aws cloudformation list-exports --query "Exports[?Name=='hsqbo:network:PublicSubnet1Id'].Value" --output text || true)
+          fi
+
+          if [ -z "$VPC_ID" ] || [ -z "$PUBLIC_SUBNET_ID" ]; then
+            echo "Missing VPC_ID or PUBLIC_SUBNET_ID and unable to resolve via exports." >&2
+            echo "Provide inputs or deploy the network stack to create exports." >&2
+            exit 1
+          fi
+
+          echo "vpc_id=$VPC_ID" >> "$GITHUB_OUTPUT"
+          echo "public_subnet_id=$PUBLIC_SUBNET_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Bastion stack
+        id: deploy_bastion
+        shell: bash
+        env:
+          STACK_NAME: ${{ inputs.BASTION_STACK_NAME }}
+          VPC_ID: ${{ steps.resolve_net.outputs.vpc_id }}
+          PUBLIC_SUBNET_ID: ${{ steps.resolve_net.outputs.public_subnet_id }}
+          BASTION_KEY_NAME: ${{ inputs.BASTION_KEY_NAME }}
+          BASTION_ALLOWED_CIDR: ${{ inputs.BASTION_ALLOWED_CIDR }}
+          INSTANCE_TYPE: ${{ inputs.INSTANCE_TYPE }}
+          ENABLE_SSM: ${{ inputs.ENABLE_SSM }}
+          ASSIGN_EIP: ${{ inputs.ASSIGN_EIP }}
+        run: |
+          set -euo pipefail
+          aws cloudformation deploy \
+            --stack-name "$STACK_NAME" \
+            --template-file src/bastion.yaml \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides \
+              VpcId="$VPC_ID" \
+              PublicSubnetId="$PUBLIC_SUBNET_ID" \
+              BastionKeyName="$BASTION_KEY_NAME" \
+              BastionAllowedCidr="$BASTION_ALLOWED_CIDR" \
+              InstanceType="$INSTANCE_TYPE" \
+              EnableSSM="$ENABLE_SSM" \
+              AssignElasticIp="$ASSIGN_EIP"
+
+          OUT_JSON=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --query "Stacks[0].Outputs" --output json)
+          BASTION_SG_ID=$(echo "$OUT_JSON" | jq -r '.[] | select(.OutputKey=="BastionSecurityGroupId") | .OutputValue')
+          BASTION_PUBLIC_IP=$(echo "$OUT_JSON" | jq -r '.[] | select(.OutputKey=="BastionPublicIp") | .OutputValue')
+          echo "bastion_sg_id=$BASTION_SG_ID" >> "$GITHUB_OUTPUT"
+          echo "bastion_public_ip=$BASTION_PUBLIC_IP" >> "$GITHUB_OUTPUT"
+          echo "BastionSecurityGroupId: $BASTION_SG_ID"
+          echo "BastionPublicIp: $BASTION_PUBLIC_IP"
+
+      - name: Optionally attach Bastion SG to existing DocDB
+        if: ${{ inputs.EXISTING_DOCDB_SG_ID != '' }}
+        shell: bash
+        env:
+          STACK_NAME: ${{ inputs.DATA_ATTACH_STACK_NAME }}
+          EXISTING_DOCDB_SG_ID: ${{ inputs.EXISTING_DOCDB_SG_ID }}
+          EXISTING_DOCDB_CLUSTER_IDENTIFIER: ${{ inputs.EXISTING_DOCDB_CLUSTER_IDENTIFIER }}
+          EXISTING_DOCDB_CLUSTER_ENDPOINT: ${{ inputs.EXISTING_DOCDB_CLUSTER_ENDPOINT }}
+          BASTION_SG_ID: ${{ steps.deploy_bastion.outputs.bastion_sg_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "$EXISTING_DOCDB_SG_ID" ] || [ -z "$BASTION_SG_ID" ]; then
+            echo "Existing DocDB SG Id or Bastion SG Id missing; skipping attach." >&2
+            exit 1
+          fi
+
+          aws cloudformation deploy \
+            --stack-name "$STACK_NAME" \
+            --template-file src/data-attach.yaml \
+            --parameter-overrides \
+              ExistingDocDBSecurityGroupId="$EXISTING_DOCDB_SG_ID" \
+              ExistingDocDBClusterIdentifier="$EXISTING_DOCDB_CLUSTER_IDENTIFIER" \
+              ExistingDocDBClusterEndpoint="$EXISTING_DOCDB_CLUSTER_ENDPOINT" \
+              BastionSecurityGroupId="$BASTION_SG_ID"
