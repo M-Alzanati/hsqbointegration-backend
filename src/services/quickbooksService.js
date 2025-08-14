@@ -263,6 +263,7 @@ async function getOAuthClient() {
       environment: process.env.QUICKBOOKS_ENVIRONMENT,
       redirectUri: process.env.QUICKBOOKS_REDIRECT_URI,
     });
+
     logMessage("DEBUG", "🐛 Created OAuthClient for QuickBooks", {
       environment: process.env.QUICKBOOKS_ENVIRONMENT,
       hasRedirect: !!process.env.QUICKBOOKS_REDIRECT_URI,
