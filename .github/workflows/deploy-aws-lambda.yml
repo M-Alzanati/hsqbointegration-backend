@@ -1,5 +1,5 @@
 name: Deploy to AWS CloudFormation
-run-name: Deploy ${{ github.ref_name }} #${{ github.run_number }} [env:${{ inputs.QBO_ENV }} stage:${{ inputs.STAGE_NAME }}] (${{ github.sha }})
+run-name: "${{ format('Deploy {0} #{1} [env:{2} stage:{3}] ({4})', github.ref_name, github.run_number, inputs.QBO_ENV, inputs.STAGE_NAME, github.sha) }}"
 
 on:
   workflow_dispatch:
