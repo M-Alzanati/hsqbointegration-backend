@@ -64,13 +64,9 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
     });
 
     // Find or create customer in QuickBooks
-    logMessage(
-      "INFO",
-      "🔄 Finding or creating QuickBooks customer for contact:",
-      contactId
-    );
     logMessage("INFO", "🔄 Invoking getOrCreateCustomer", {
       userId,
+      contactId,
       contactEmail: contact?.email,
     });
 
@@ -95,13 +91,70 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
       });
     }
 
+    // Build invoice lines from HubSpot Quotes' line items for this deal
+    let qbLines = [];
+    try {
+      const quotes = await hubspotService.getQuotesByDealId(dealId);
+      const allLineItems = [];
+
+      for (const quote of quotes || []) {
+        try {
+          const items = await hubspotService.getQuoteLineItems(quote.id);
+          allLineItems.push(
+            ...items.map((it) => ({ ...it, __quoteId: quote.id }))
+          );
+        } catch (e) {
+          logMessage("WARN", "⚠️ Failed fetching line items for quote", {
+            quoteId: quote?.id,
+            message: e?.message,
+          });
+        }
+      }
+
+      qbLines = (allLineItems || []).map((li) => {
+        // Normalize common HubSpot properties
+        const qtyRaw = li.quantity ?? li.hs_quantity ?? 1;
+        const unitPriceRaw = li.price ?? li.hs_price ?? li.unit_price;
+        const amountRaw = li.amount ?? li.hs_amount;
+        const name = li.name ?? li.hs_name;
+        const description = li.description ?? li.hs_description;
+
+        // Convert numeric fields safely
+        const qty = Number.isFinite(Number(qtyRaw)) ? Number(qtyRaw) : 1;
+        const unitPrice = Number.isFinite(Number(unitPriceRaw))
+          ? Number(unitPriceRaw)
+          : undefined;
+        const amount = Number.isFinite(Number(amountRaw))
+          ? Number(amountRaw)
+          : undefined;
+
+        return {
+          name,
+          description,
+          qty,
+          unitPrice,
+          amount,
+        };
+      });
+
+      // Filter out lines with no usable amount or price; we will trust qty*unitPrice or explicit amount
+      qbLines = qbLines.filter((l) => {
+        const hasPrice = Number.isFinite(Number(l.unitPrice));
+        const hasAmount = Number.isFinite(Number(l.amount));
+        return hasPrice || hasAmount;
+      });
+    } catch (e) {
+      logMessage("WARN", "⚠️ Failed building qbLines from HubSpot quotes", e?.message || e);
+    }
+
     const { invoiceNumber, invoiceUrl } = await quickbooksService.createInvoice(
       realmId,
       accessToken,
       refreshToken,
       customerId,
       deal,
-      contact?.email
+      contact?.email,
+      { qbLines }
     );
 
     if (!invoiceNumber || !invoiceUrl) {

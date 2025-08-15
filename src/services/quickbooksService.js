@@ -946,7 +946,8 @@ async function createInvoice(
   refreshToken,
   customerId,
   deal,
-  customerEmail
+  customerEmail,
+  options = {}
 ) {
   await ensureQuickBooksCreds();
 
@@ -989,14 +990,22 @@ async function createInvoice(
     throw e;
   }
 
-  // Validate and normalize amount
+  // Prepare potential external lines before deciding validation path
+  const qbLinesInput = Array.isArray(options?.qbLines)
+    ? options.qbLines.filter(Boolean)
+    : [];
+
+  // Validate and normalize amount only if we won't use external lines
   const amount = Number.isFinite(Number(deal.amount))
     ? parseFloat(deal.amount)
     : NaN;
-  if (!Number.isFinite(amount) || amount <= 0) {
-    throw new Error(
-      `Invalid deal amount for invoice. Received: "${deal.amount}"`
-    );
+
+  if (qbLinesInput.length === 0) {
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error(
+        `Invalid deal amount for invoice. Received: "${deal.amount}"`
+      );
+    }
   }
 
   const qty = 1;
@@ -1061,19 +1070,88 @@ async function createInvoice(
     const base = serviceDate
       ? new Date(`${serviceDate}T00:00:00Z`)
       : new Date();
+
     base.setUTCDate(base.getUTCDate() + 15);
     dueDateStr = formatDateYYYYMMDD(base);
   }
 
   const description = (() => {
     const raw = deal?.description;
-    if (raw == null) return undefined;
+    if (raw == null) {
+      return undefined;
+    }
+
     const str = String(raw).trim();
     return str.length > 0 ? str : undefined;
   })();
 
-  const invoiceData = {
-    Line: [
+  // Build Line array. If options.qbLines provided, use them; else fallback to single summary line
+  /** Map provided qbLines to QBO Line objects */
+  const mapLine = (l) => {
+    // qty/unitPrice computations
+    const lqty = Number.isFinite(Number(l?.qty)) ? Number(l.qty) : 1;
+    const lprice = Number.isFinite(Number(l?.unitPrice))
+      ? Number(l.unitPrice)
+      : Number.isFinite(Number(l?.price))
+        ? Number(l.price)
+        : undefined;
+    const lamount = Number.isFinite(Number(l?.amount))
+      ? Number(l.amount)
+      : Number.isFinite(lqty) && Number.isFinite(lprice)
+        ? lqty * lprice
+        : undefined;
+
+    if (!Number.isFinite(lamount)) {
+      throw new Error(
+        `Invalid line amount derived from qty=${lqty}, unitPrice=${lprice}, amount=${l?.amount}`
+      );
+    }
+
+    const lineDesc = (() => {
+      const parts = [];
+      if (l?.name) {
+        parts.push(String(l.name));
+      }
+
+      if (l?.description) {
+        parts.push(String(l.description));
+      }
+
+      return parts.join(" - ").trim() || undefined;
+    })();
+
+    const line = {
+      Amount: lamount,
+      DetailType: "SalesItemLineDetail",
+      SalesItemLineDetail: {
+        ItemRef: { value: itemId },
+        Qty: lqty,
+        // Ensure UnitPrice is always set for SalesItemLineDetail
+        UnitPrice: Number.isFinite(lprice) ? lprice : lamount / lqty,
+        ...(serviceDate ? { ServiceDate: serviceDate } : {}),
+        ...(taxCodeId ? { TaxCodeRef: { value: taxCodeId } } : {}),
+      },
+      ...(lineDesc ? { Description: lineDesc } : {}),
+    };
+    return line;
+  };
+
+  let lineArray;
+  if (qbLinesInput.length > 0) {
+    try {
+      lineArray = qbLinesInput.map(mapLine);
+    } catch (e) {
+      logMessage(
+        "WARN",
+        "⚠️ Failed to use provided qbLines; falling back to single summary line",
+        e?.message || e
+      );
+    }
+  }
+
+  if (!Array.isArray(lineArray) || lineArray.length === 0) {
+    // Fallback to single line
+    lineArray = [
       {
         Amount: qty * unitPrice,
         DetailType: "SalesItemLineDetail",
@@ -1086,7 +1164,11 @@ async function createInvoice(
         },
         ...(description ? { Description: description } : {}),
       },
-    ],
+    ];
+  }
+
+  const invoiceData = {
+    Line: lineArray,
     CustomerRef: { value: customerId },
     ...(customerEmail
       ? {
