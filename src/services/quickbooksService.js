@@ -174,7 +174,7 @@ async function ensureGlobalTokenFresh(db) {
     expiresAt,
   });
 
-  if (expiresAt && now < expiresAt - 30_000) {
+  if (tokenDoc.accessToken && expiresAt && now < expiresAt - 30_000) {
     // not expired (30s buffer)
     logMessage("DEBUG", "🐛 Global QuickBooks token still valid (buffered)", {
       expiresAt,
@@ -940,6 +940,7 @@ async function createInvoice(
   customerEmail
 ) {
   await ensureQuickBooksCreds();
+
   // Use shared company tokens if not supplied
   if (!realmId || !accessToken) {
     const shared = await getGlobalTokens();
@@ -947,6 +948,7 @@ async function createInvoice(
     accessToken = accessToken || shared.accessToken;
     refreshToken = refreshToken || shared.refreshToken;
   }
+
   logMessage("DEBUG", "🐛 Creating QuickBooks instance for invoice creation", {
     realmId,
     hasAccessToken: !!accessToken,
