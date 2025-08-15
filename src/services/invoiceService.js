@@ -195,6 +195,7 @@ async function getInvoicesForDeal(dealId, userId) {
       .collection(QB_INVOICE_COLLECTION)
       .find({ dealId })
       .toArray();
+
     logMessage("INFO", "📄 Loaded invoices from DB for deal", {
       dealId,
       count: (dbInvoices || []).length,

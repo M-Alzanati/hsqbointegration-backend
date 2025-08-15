@@ -2,6 +2,7 @@ const express = require("express");
 
 const { logMessage } = require("./common/logger");
 const { connectDB, closeDB } = require("./config/db");
+const { correlationMiddleware } = require("./common/correlation");
 
 // Load .env only when running locally (not in Lambda)
 if (process.env.AWS_LAMBDA_FUNCTION_NAME === undefined) {
@@ -22,6 +23,9 @@ const { enforceApiKey } = require("./common/middlewares");
 // Middleware to parse JSON requests
 app.use(express.json());
 
+// Correlation-ID middleware (must be early)
+app.use(correlationMiddleware);
+
 // Middleware to strip /prod from path if running in Lambda/API Gateway
 if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
   app.use((req, res, next) => {
@@ -36,16 +40,13 @@ if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
 // Middleware to log API calls
 app.use((req, res, next) => {
   const start = Date.now();
-  logMessage(
-    "INFO",
-    `[${new Date().toISOString()}] ${req.method} ${req.originalUrl} - Start`
-  );
+  logMessage("INFO", `${req.method} ${req.originalUrl} - Start`);
 
   res.on("finish", () => {
     const duration = Date.now() - start;
     logMessage(
       "INFO",
-      `[${new Date().toISOString()}] ${req.method} ${req.originalUrl} ${res.statusCode} ${duration}ms - End`
+      `${req.method} ${req.originalUrl} ${res.statusCode} ${duration}ms - End`
     );
   });
 

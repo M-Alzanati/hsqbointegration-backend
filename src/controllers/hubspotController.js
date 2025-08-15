@@ -3,7 +3,6 @@ const { successResponse, errorResponse } = require("../common/response");
 
 const getContactById = async (req, res) => {
   try {
-    console.log("Fetching contact by ID:", req.params.id);
     const contact = await hubspotService.getContactById(req.params.id);
     successResponse(res, contact, "✅ Contact fetched successfully");
   } catch (error) {
