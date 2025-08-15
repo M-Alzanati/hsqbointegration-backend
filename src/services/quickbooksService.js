@@ -159,9 +159,13 @@ async function ensureGlobalTokenFresh(db) {
     return null;
   }
 
-  if (!tokenDoc.accessToken || !tokenDoc.refreshToken) {
-    logMessage("WARN", "⚠️ Global QuickBooks token is missing fields");
-    return null;
+  if (!tokenDoc.accessToken) {
+    logMessage("WARN", "⚠️ Global QuickBooks access token is missing");
+  }
+
+  if (!tokenDoc.refreshToken) {
+    logMessage("WARN", "⚠️ Global QuickBooks refresh token is missing");
+    return;
   }
 
   const now = Date.now();
