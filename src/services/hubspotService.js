@@ -279,16 +279,7 @@ async function getQuoteById(
 }
 
 // List all Quotes associated with a Deal
-async function getQuotesByDealId(
-  dealId,
-  properties = [
-    "hs_title",
-    "hs_status",
-    "amount",
-    "hs_expiration_date",
-    "hs_public_url",
-  ]
-) {
+async function getQuotesByDealId(dealId) {
   const requestBody = { inputs: [{ id: dealId }] };
   const hubspotClient = await getHubspotClient();
   const associations = await hubspotClient.crm.associations.v4.batchApi.getPage(
@@ -314,10 +305,7 @@ async function getQuotesByDealId(
   const quotes = [];
   for (const qid of quoteIds) {
     try {
-      const q = await hubspotClient.crm.quotes.basicApi.getById(
-        qid,
-        properties
-      );
+      const q = await hubspotClient.crm.quotes.basicApi.getById(qid);
       quotes.push({ id: qid, ...q.properties });
     } catch (e) {
       logMessage("WARN", "⚠️ Failed to load quote details", {
