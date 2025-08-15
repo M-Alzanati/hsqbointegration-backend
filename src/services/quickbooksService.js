@@ -134,6 +134,7 @@ async function invalidateGlobalToken(mode = "expire") {
         createdAt: new Date(0),
         expiresIn: 0,
         updatedAt: new Date(),
+        accessToken: "",
       },
     }
   );
