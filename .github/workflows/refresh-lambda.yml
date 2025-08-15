@@ -1,0 +1,48 @@
+name: Refresh Lambda Environments
+run-name: Refresh | ${{ github.ref_name }} | run #${{ github.run_number }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      AWS_REGION:
+        description: "AWS Region (default: us-east-1)"
+        required: false
+        default: "us-east-1"
+      STAGE_NAME:
+        description: "Stage name used in function names (e.g., prod, dev)"
+        required: false
+        default: "prod"
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  refresh:
+    name: Force cold restart (no deploy)
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ inputs.AWS_REGION }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Force refresh Lambda environments (cold restart)
+        env:
+          STAGE: ${{ inputs.STAGE_NAME }}
+        run: |
+          set -euo pipefail
+          API_FN="HubspotQuickbookApiLambda-${STAGE}"
+          ADMIN_FN="HubspotQuickbookAdminInvalidate-${STAGE}"
+          for FN in "$API_FN" "$ADMIN_FN"; do
+            echo "Forcing cold start by updating Description on $FN"
+            if ! aws lambda update-function-configuration --function-name "$FN" --description "refresh-${GITHUB_RUN_NUMBER}"; then
+              echo "Warning: could not update $FN (may not exist for this stage). Skipping."
+            fi
+          done

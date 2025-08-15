@@ -24,6 +24,10 @@ on:
         description: "Desired DocDB cluster identifier (used for existence check)"
         required: false
         default: "quickbooks-hubspot-cluster"
+      FORCE_REFRESH:
+        description: "Force cold restart of Lambda environments after deploy (true/false)"
+        required: false
+        default: "false"
 
 permissions:
   contents: read
@@ -252,6 +256,7 @@ jobs:
               QuickBooksEnvironment=$QBO_ENV
 
       - name: Force refresh Lambda environments (cold restart)
+        if: ${{ inputs.FORCE_REFRESH == 'true' }}
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
           STAGE: ${{ inputs.STAGE_NAME }}
