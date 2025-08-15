@@ -165,7 +165,7 @@ async function ensureGlobalTokenFresh(db) {
 
   if (!tokenDoc.refreshToken) {
     logMessage("WARN", "⚠️ Global QuickBooks refresh token is missing");
-    return;
+    return null;
   }
 
   const now = Date.now();
@@ -201,7 +201,10 @@ async function ensureGlobalTokenFresh(db) {
 
   const oauthClient = await getOAuthClient();
   await oauthClient.refreshUsingToken(refreshValue);
-  const saved = await upsertGlobalToken(db, oauthClient.token);
+  const saved = await upsertGlobalToken(db, {
+    ...oauthClient.token,
+    realmId: tokenDoc?.realmId,
+  });
 
   logMessage("INFO", "✅ Global QuickBooks token refreshed and saved");
   return saved;
@@ -627,6 +630,7 @@ async function handleCallback(parseRedirectUrl, code, state) {
       hasRefreshToken: !!result.refreshToken,
       realmId: result.realmId,
     });
+
     return { success: true };
   } catch (error) {
     logMessage("ERROR", "❌ OAuth callback error:", error);
@@ -686,7 +690,10 @@ async function handleRefreshToken(userId) {
       }
     }
 
-    await upsertGlobalToken(db, oauthClient.token);
+    await upsertGlobalToken(db, {
+      ...oauthClient.token,
+      realmId: tokenDoc?.realmId,
+    });
 
     logMessage("INFO", `✅ Refreshed global QuickBooks token`);
     return { success: true };
