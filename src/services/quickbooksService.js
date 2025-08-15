@@ -1194,11 +1194,6 @@ async function createInvoice(
   };
 
   logMessage("INFO", "Creating QuickBooks invoice with data:", invoiceData);
-  logMessage(
-    "DEBUG",
-    "Invoice lines being sent to QuickBooks:",
-    invoiceData.Line.map((e) => e.SalesItemLineDetail)
-  );
 
   const invoiceResponse = await new Promise((resolve, reject) => {
     qbo.createInvoice(invoiceData, (err, data) => {
