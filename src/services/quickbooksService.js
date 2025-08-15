@@ -56,6 +56,13 @@ async function getGlobalTokenDoc(db) {
 }
 
 async function upsertGlobalToken(db, tokenObj) {
+  logMessage(
+    "INFO",
+    "[quickbooksService.js] Upserting global QuickBooks token"
+  );
+
+  logMessage("DEBUG", "[quickbooksService.js] Token payload:", tokenObj);
+
   const payload = {
     ...toCamelCase(tokenObj || {}),
     key: GLOBAL_TOKEN_KEY,
