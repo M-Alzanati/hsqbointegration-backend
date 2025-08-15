@@ -1,5 +1,5 @@
 name: Deploy to AWS CloudFormation
-run-name: ${{ format('Deploy {0} - {1}', github.ref_name, github.sha) }}
+run-name: "Deploy ${{ github.ref_name }} - #${{ github.run_number }}"
 
 on:
   workflow_dispatch:
