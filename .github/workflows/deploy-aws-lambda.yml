@@ -250,3 +250,18 @@ jobs:
               DocDBMasterUsername=$DOCDB_MASTER_USERNAME \
               StageName=$STAGE \
               QuickBooksEnvironment=$QBO_ENV
+
+      - name: Force refresh Lambda environments (cold restart)
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          STAGE: ${{ inputs.STAGE_NAME }}
+        run: |
+          set -euo pipefail
+          API_FN="HubspotQuickbookApiLambda-${STAGE}"
+          ADMIN_FN="HubspotQuickbookAdminInvalidate-${STAGE}"
+          for FN in "$API_FN" "$ADMIN_FN"; do
+            echo "Forcing cold start by bumping FORCE_REFRESH on $FN"
+            CURR=$(aws lambda get-function-configuration --function-name "$FN" --query 'Environment.Variables' --output json || echo '{}')
+            MERGED=$(jq -c --arg v "${GITHUB_RUN_NUMBER}" '(. // {}) + {FORCE_REFRESH: $v}' <<< "$CURR")
+            aws lambda update-function-configuration --function-name "$FN" --environment "Variables=$MERGED" >/dev/null
+          done
