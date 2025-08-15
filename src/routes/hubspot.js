@@ -20,4 +20,8 @@ router.get(
   hubspotController.getAssociatedContactsForDeal
 );
 
+// Quotes endpoints
+router.get("/quote/:quoteId", hubspotController.getQuoteById);
+router.get("/deal/:dealId/quotes", hubspotController.getQuotesByDealId);
+
 module.exports = router;

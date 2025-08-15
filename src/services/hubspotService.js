@@ -258,6 +258,60 @@ function validateHubSpotRequest(req) {
   }
 }
 
+// Fetch a single Quote by ID
+async function getQuoteById(quoteId, properties = [
+  "hs_title",
+  "hs_status",
+  "amount",
+  "hs_expiration_date",
+  "hs_public_url",
+]) {
+  const hubspotClient = await getHubspotClient();
+  const quote = await hubspotClient.crm.quotes.basicApi.getById(
+    quoteId,
+    properties
+  );
+  logMessage("DEBUG", "📄 Fetched HubSpot quote by ID", { quoteId });
+  return quote.properties;
+}
+
+// List all Quotes associated with a Deal
+async function getQuotesByDealId(dealId, properties = [
+  "hs_title",
+  "hs_status",
+  "amount",
+  "hs_expiration_date",
+  "hs_public_url",
+]) {
+  const requestBody = { inputs: [{ id: dealId }] };
+  const hubspotClient = await getHubspotClient();
+  const associations = await hubspotClient.crm.associations.v4.batchApi.getPage(
+    "deals",
+    "quotes",
+    requestBody
+  );
+
+  const quoteIds = [];
+  for (const association of associations.results || []) {
+    for (const item of association.to || []) {
+      if (item.toObjectId) quoteIds.push(item.toObjectId);
+    }
+  }
+
+  const quotes = [];
+  for (const qid of quoteIds) {
+    try {
+      const q = await hubspotClient.crm.quotes.basicApi.getById(qid, properties);
+      quotes.push({ id: qid, ...q.properties });
+    } catch (e) {
+      logMessage("WARN", "⚠️ Failed to load quote details", { quoteId: qid, message: e?.message });
+    }
+  }
+
+  logMessage("INFO", "✅ Loaded quotes associated to deal", { dealId, count: quotes.length });
+  return quotes;
+}
+
 module.exports = {
   getHubSpotData,
   updateHubSpotDeal,
@@ -269,4 +323,6 @@ module.exports = {
   getCrmCardDetailsByDealId,
   validateHubSpotRequest,
   getAssociatedContactsForDeal,
+  getQuoteById,
+  getQuotesByDealId,
 };

@@ -102,6 +102,26 @@ const getAssociatedContactsForDeal = async (req, res) => {
   }
 };
 
+const getQuoteById = async (req, res) => {
+  try {
+    const { quoteId } = req.params;
+    const quote = await hubspotService.getQuoteById(quoteId);
+    successResponse(res, quote, "✅ Quote fetched successfully");
+  } catch (error) {
+    errorResponse(res, error.message, "❌ Failed to fetch quote", 500);
+  }
+};
+
+const getQuotesByDealId = async (req, res) => {
+  try {
+    const { dealId } = req.params;
+    const quotes = await hubspotService.getQuotesByDealId(dealId);
+    successResponse(res, quotes, "✅ Quotes fetched successfully");
+  } catch (error) {
+    errorResponse(res, error.message, "❌ Failed to fetch quotes", 500);
+  }
+};
+
 module.exports = {
   getContactById,
   getDealById,
@@ -110,4 +130,6 @@ module.exports = {
   getCrmCardDetails,
   getCrmCardDetailsByDealId,
   getAssociatedContactsForDeal,
+  getQuoteById,
+  getQuotesByDealId,
 };

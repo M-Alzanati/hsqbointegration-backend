@@ -138,6 +138,7 @@ async function invalidateGlobalToken(mode = "expire") {
       },
     }
   );
+
   return { success: true, mode: "expire" };
 }
 
