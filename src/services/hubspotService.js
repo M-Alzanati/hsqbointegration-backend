@@ -278,6 +278,85 @@ async function getQuoteById(
   return quote.properties;
 }
 
+// Fetch all line items for a given Quote ID
+async function getQuoteLineItems(
+  quoteId,
+  properties = [
+    "name",
+    "description",
+    "quantity",
+    "price",
+    "amount",
+    "hs_currency",
+    "hs_discount_amount",
+    "hs_discount_percentage",
+    "hs_tax_amount",
+    "tax",
+    "hs_sku",
+    "hs_product_id",
+  ]
+) {
+  const hubspotClient = await getHubspotClient();
+  const assoc = await hubspotClient.crm.associations.v4.basicApi.getPage(
+    "quotes",
+    quoteId,
+    "line_items"
+  );
+
+  const lineItemIds = (assoc.results || [])
+    .map((r) => r.toObjectId)
+    .filter(Boolean);
+
+  logMessage("DEBUG", "📄 Quote line item associations", {
+    quoteId,
+    count: lineItemIds.length,
+  });
+
+  const items = [];
+  for (const id of lineItemIds) {
+    try {
+      const li = await hubspotClient.crm.lineItems.basicApi.getById(
+        id,
+        properties
+      );
+      items.push({ id, ...li.properties });
+    } catch (e) {
+      logMessage("WARN", "⚠️ Failed to load line item", {
+        lineItemId: id,
+        message: e?.message,
+      });
+    }
+  }
+
+  return items;
+}
+
+// Fetch a single line item by ID
+async function getLineItemById(
+  lineItemId,
+  properties = [
+    "name",
+    "description",
+    "quantity",
+    "price",
+    "amount",
+    "hs_currency",
+    "hs_discount_amount",
+    "hs_discount_percentage",
+    "hs_tax_amount",
+    "tax",
+    "hs_sku",
+    "hs_product_id",
+  ]
+) {
+  const hubspotClient = await getHubspotClient();
+  const li = await hubspotClient.crm.lineItems.basicApi.getById(
+    lineItemId,
+    properties
+  );
+  return { id: lineItemId, ...li.properties };
+}
+
 // List all Quotes associated with a Deal
 async function getQuotesByDealId(dealId) {
   const requestBody = { inputs: [{ id: dealId }] };
@@ -334,5 +413,7 @@ module.exports = {
   validateHubSpotRequest,
   getAssociatedContactsForDeal,
   getQuoteById,
+  getQuoteLineItems,
+  getLineItemById,
   getQuotesByDealId,
 };

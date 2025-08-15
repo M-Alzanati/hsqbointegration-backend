@@ -23,5 +23,7 @@ router.get(
 // Quotes endpoints
 router.get("/quote/:quoteId", hubspotController.getQuoteById);
 router.get("/deal/:dealId/quotes", hubspotController.getQuotesByDealId);
+router.get("/quote/:quoteId/line-items", hubspotController.getQuoteLineItems);
+router.get("/line-item/:lineItemId", hubspotController.getLineItemById);
 
 module.exports = router;
