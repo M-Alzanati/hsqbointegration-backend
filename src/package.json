@@ -13,7 +13,7 @@
     "build:lambda": "esbuild lambda.js --bundle --platform=node --target=node22 --minify --legal-comments=none --outfile=bundle/lambda.js",
     "build:admin": "esbuild adminInvalidate.js --bundle --platform=node --target=node22 --minify --legal-comments=none --outfile=bundle/adminInvalidate.js",
     "build": "rm -rf bundle && mkdir -p bundle && npm run build:lambda && npm run build:admin && cp -f global-bundle.pem bundle/global-bundle.pem || true",
-    "package-lambda": "npm run build && cd bundle && zip -r ../hubspot-quickbooks-backend.zip . && cp ../hubspot-quickbooks-backend.zip ./hubspot-quickbooks-backend.zip && rm -f ../hubspot-quickbooks-backend.zip",
+    "package-lambda": "npm run build && cd bundle && zip -r ../hubspot-quickbooks-backend.zip . && cp ../hubspot-quickbooks-backend.zip ./hubspot-quickbooks-backend.zip",
     "upload-lambda-zip": "aws s3 cp ./hubspot-quickbooks-backend.zip s3://hubspot-quickbook-deployment/hubspot-quickbooks-backend.zip",
     "update-lambda-code": "aws lambda update-function-code --function-name HubspotQuickbookApiLambda --s3-bucket hubspot-quickbook-deployment --s3-key hubspot-quickbooks-backend.zip",
     "deploy-lambda-code": "npm run package-lambda && npm run upload-lambda-zip && npm run update-lambda-code",
