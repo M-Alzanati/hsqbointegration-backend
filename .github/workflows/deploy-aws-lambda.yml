@@ -263,6 +263,9 @@ jobs:
             echo "Forcing cold start by bumping FORCE_REFRESH on $FN"
             CURR=$(aws lambda get-function-configuration --function-name "$FN" --query 'Environment.Variables' --output json || echo '{}')
             MERGED=$(jq -c --arg v "${GITHUB_RUN_NUMBER}" '(. // {}) + {FORCE_REFRESH: $v}' <<< "$CURR")
-            INPUT=$(jq -c --argjson vars "$MERGED" '{Environment:{Variables:$vars}}')
-            aws lambda update-function-configuration --function-name "$FN" --cli-input-json "$INPUT" >/dev/null
+            PAYLOAD=$(jq -c --arg fn "$FN" --argjson vars "$MERGED" '{FunctionName:$fn,Environment:{Variables:$vars}}')
+            TMP=$(mktemp)
+            printf '%s' "$PAYLOAD" > "$TMP"
+            aws lambda update-function-configuration --cli-input-json file://"$TMP" >/dev/null
+            rm -f "$TMP"
           done
