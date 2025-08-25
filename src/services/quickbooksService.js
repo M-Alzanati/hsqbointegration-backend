@@ -1175,6 +1175,8 @@ async function createInvoice(
     ];
   }
 
+  logMessage("DEBUG", "🐛 Invoice Line array:", lineArray);
+
   const invoiceData = {
     Line: lineArray,
     CustomerRef: { value: customerId },

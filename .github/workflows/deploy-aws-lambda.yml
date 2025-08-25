@@ -1,4 +1,4 @@
-name: Deploy to prod
+name: Deploy To Production
 run-name: ${{ format('Deploy | {0} | {1}', github.ref_name, github.sha) }}
 
 on:
