@@ -804,7 +804,7 @@ async function getOrCreateCustomer(
   );
 
   const qbo = getQBOInstance(realmId, accessToken, refreshToken);
-  
+
   const email = contact.email;
   let customerResponse;
 
@@ -888,19 +888,24 @@ async function handleQBOFindCustomers(qbo, contact) {
           // Check for error code 3200 (token expired)
           const errorCode =
             err?.Fault?.Error?.[0]?.code || err?.fault?.error?.[0]?.code;
+
           if (errorCode === "3200") {
             logMessage(
               "WARN",
               "⚠️ QuickBooks token expired (code 3200), refreshing token..."
             );
+
             await module.exports.handleRefreshToken(
               contact.userId || contact.id || ""
             );
+
             return reject(new Error("Token refreshed, please retry request."));
           }
+
           logMessage("ERROR", "❌ Error finding customer:", err?.fault?.error);
           return reject(err);
         }
+
         resolve(data);
       }
     );
@@ -1425,7 +1430,6 @@ async function verifyInvoicesInQuickBooks(
   );
 
   try {
-
     let response = await new Promise((resolve, reject) => {
       qbo.findInvoices({}, (err, data) => {
         if (err) {
