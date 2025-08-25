@@ -1175,7 +1175,24 @@ async function createInvoice(
     ];
   }
 
-  logMessage("DEBUG", "🐛 Invoice Line array:", lineArray);
+  // Log full details of lineArray for debugging
+  logMessage("DEBUG", "🐛 Invoice Line array (objects):", lineArray);
+
+  try {
+    const lineArrayJson = JSON.stringify(lineArray, null, 2);
+    logMessage("DEBUG", "🐛 Invoice Line array (json):\n" + lineArrayJson);
+  } catch {
+    try {
+      const util = require("util");
+      logMessage(
+        "DEBUG",
+        "🐛 Invoice Line array (inspect):\n" +
+          util.inspect(lineArray, { depth: null, colors: false })
+      );
+    } catch {
+      // no-op
+    }
+  }
 
   const invoiceData = {
     Line: lineArray,
