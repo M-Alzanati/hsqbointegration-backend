@@ -978,8 +978,11 @@ async function createInvoice(
   logMessage("DEBUG", "📄 Invoice creation details:", { customerId, deal });
 
   let itemId = "1";
+  let defaultItemName = "Service";
   try {
-    itemId = await getFirstItemId(qbo);
+    const info = await getFirstItemInfo(qbo);
+    itemId = info.id || itemId;
+    defaultItemName = info.name || defaultItemName;
   } catch (e) {
     logMessage(
       "ERROR",
@@ -1124,7 +1127,11 @@ async function createInvoice(
       Amount: lamount,
       DetailType: "SalesItemLineDetail",
       SalesItemLineDetail: {
-        ItemRef: { value: itemId },
+        ItemRef: {
+          value: itemId,
+          // name is optional in QBO but helps show product/service on the line
+          name: l?.itemName || l?.name || defaultItemName,
+        },
         Qty: lqty,
         // Ensure UnitPrice is always set for SalesItemLineDetail
         UnitPrice: Number.isFinite(lprice) ? lprice : lamount / lqty,
@@ -1157,7 +1164,7 @@ async function createInvoice(
         Amount: qty * unitPrice,
         DetailType: "SalesItemLineDetail",
         SalesItemLineDetail: {
-          ItemRef: { value: itemId },
+          ItemRef: { value: itemId, name: defaultItemName },
           Qty: qty,
           UnitPrice: unitPrice,
           ...(serviceDate ? { ServiceDate: serviceDate } : {}),
@@ -1226,24 +1233,28 @@ async function createInvoice(
 }
 
 /**
- * Gets the first Item ID from QuickBooks account (used for invoice line)
+ * Gets the first Item info from QuickBooks account (used for invoice line)
  * @param {QuickBooks} qbo - QuickBooks instance
- * @returns {Promise<string>} The first Item ID
+ * @returns {Promise<{id:string, name:string}>} The first Item id and name
  */
-async function getFirstItemId(qbo) {
+async function getFirstItemInfo(qbo) {
   return new Promise((resolve, reject) => {
     qbo.findItems({}, (err, items) => {
       if (err) {
         return reject(err);
       }
 
-      if (
-        items &&
-        items.QueryResponse &&
-        items.QueryResponse.Item &&
-        items.QueryResponse.Item.length > 0
-      ) {
-        resolve(items.QueryResponse.Item[0].Id);
+      const arr =
+        items?.QueryResponse?.Item && Array.isArray(items.QueryResponse.Item)
+          ? items.QueryResponse.Item
+          : [];
+
+      if (arr.length > 0) {
+        const first = arr[0];
+        resolve({
+          id: String(first.Id),
+          name: String(first.Name || "Service"),
+        });
       } else {
         reject(new Error("No items found in QuickBooks account."));
       }
