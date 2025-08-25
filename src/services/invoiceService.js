@@ -219,6 +219,7 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
       contactId,
       message: error?.message,
     });
+
     if (error.statusCode === 401) {
       // Refresh global tokens and ask client to retry
       await quickbooksService.getGlobalTokens();
@@ -230,6 +231,7 @@ async function handleCreateInvoice({ userId, dealId, contactId }) {
       "❌ Error in handleCreateInvoice:",
       error && error.stack ? error.stack : JSON.stringify(error)
     );
+    
     return { error: error.message, status: 500 };
   }
 }
