@@ -804,7 +804,7 @@ async function getOrCreateCustomer(
   );
 
   const qbo = getQBOInstance(realmId, accessToken, refreshToken);
-
+  
   const email = contact.email;
   let customerResponse;
 
@@ -881,7 +881,7 @@ async function getOrCreateCustomer(
 
 async function handleQBOFindCustomers(qbo, contact) {
   return new Promise((resolve, reject) => {
-    qbo.findCustomer(
+    qbo.findCustomers(
       [{ field: "PrimaryEmailAddr", value: contact.email, operator: "=" }],
       async (err, data) => {
         if (err) {
@@ -1425,6 +1425,7 @@ async function verifyInvoicesInQuickBooks(
   );
 
   try {
+
     let response = await new Promise((resolve, reject) => {
       qbo.findInvoices({}, (err, data) => {
         if (err) {
