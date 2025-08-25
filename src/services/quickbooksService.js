@@ -413,6 +413,17 @@ async function getPreferredTaxCodeId(qbo) {
   }
 
   // Allow explicit override without any API call
+  if (process.env.QUICKBOOKS_GST_TAX_CODE_ID) {
+    cachedTaxCodeId = String(process.env.QUICKBOOKS_GST_TAX_CODE_ID);
+    taxCodeCachedAt = now;
+    logMessage(
+      "DEBUG",
+      "🐛 Using GST TaxCode ID from env QUICKBOOKS_GST_TAX_CODE_ID",
+      cachedTaxCodeId
+    );
+    return cachedTaxCodeId;
+  }
+
   if (process.env.QUICKBOOKS_TAX_CODE_ID) {
     cachedTaxCodeId = String(process.env.QUICKBOOKS_TAX_CODE_ID);
     taxCodeCachedAt = now;
@@ -438,6 +449,32 @@ async function getPreferredTaxCodeId(qbo) {
     const all = await listTaxCodes();
     const active = all.filter((t) => t?.Active !== false);
 
+    // 1) Strong preference: Try to find GST 5% by common names
+    const gst5Names = [
+      "GST 5%",
+      "GST (5%)",
+      "GST Only (5%)",
+      "GST-5%",
+      "GST - 5%",
+    ];
+    const upperSet = new Set(gst5Names.map((n) => n.toUpperCase()));
+    let foundGst5 = active.find(
+      (t) => t?.Name && upperSet.has(String(t.Name).toUpperCase())
+    );
+    if (!foundGst5) {
+      // fallback heuristic: name contains GST and 5%
+      foundGst5 = active.find((t) => /GST/i.test(t?.Name || "") && /5\s*%/.test(t?.Name || ""));
+    }
+    if (foundGst5) {
+      cachedTaxCodeId = String(foundGst5.Id);
+      taxCodeCachedAt = now;
+      logMessage("DEBUG", "🐛 Selected GST 5% TaxCode", {
+        id: cachedTaxCodeId,
+        name: foundGst5.Name,
+      });
+      return cachedTaxCodeId;
+    }
+
     if (preferred.length > 0) {
       const foundPref = active.find((t) => preferred.includes(t?.Name));
       if (foundPref) {
@@ -447,8 +484,8 @@ async function getPreferredTaxCodeId(qbo) {
       }
     }
 
-    // Try to pick common Canadian codes
-    const candidates = ["HST ON", "HST", "GST/HST", "GST", "TAX", "QST", "PST"];
+    // Try to pick common Canadian codes (will include GST if exact name exists)
+    const candidates = ["GST", "HST ON", "HST", "GST/HST", "TAX", "QST", "PST"];
     const found = active.find((t) => candidates.includes(t?.Name));
     if (found) {
       cachedTaxCodeId = String(found.Id);
