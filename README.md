@@ -148,6 +148,72 @@ This backend service integrates HubSpot CRM with QuickBooks Online, allowing you
 
    Add a small script or temporarily log results from `qbo.findTaxCodes({}, (err, data) => ...)` using a valid `qbo` instance (see `getQBOInstance` in `src/services/quickbooksService.js`). The returned object contains `QueryResponse.TaxCode` entries with `Id` and `Name` you can copy into your env.
 
+   ## AWS infrastructure (CloudFormation) — analysis
+
+   This project ships modular CloudFormation templates under `src/` that together form the AWS infrastructure for the service. The primary templates and their responsibilities:
+
+   - `src/network.yaml` — VPC and networking resources (VPC, private/public subnets, NAT, route tables, and a `LambdaSecurityGroup`). It exports values like `hsqbo:network:PrivateSubnet1Id`, `hsqbo:network:PrivateSubnet2Id`, and `hsqbo:network:LambdaSecurityGroupId` that other stacks import.
+   - `src/secrets-only.yaml` — Creates Secrets Manager secrets used by the app: `docdb/password`, `service/api/key`, `quickbooks/client/id`, `quickbooks/client/secret`, and `hubspot/api/key`.
+   - `src/data-create.yaml` — Deploys DocumentDB (Amazon DocumentDB / MongoDB compatible) cluster, subnet group and security group allowing access from the Lambda security group. Outputs include the cluster endpoint and identifier.
+   - `src/bucket-only.yaml` — Creates a private S3 bucket used for Lambda deployment artifacts (zip uploads).
+   - `src/bastion.yaml` — (Optional) Bastion host to access DocumentDB for troubleshooting or one-off admin tasks (supports SSM and optional EIP).
+   - `src/app.yaml` — The application stack. Creates IAM roles, Lambda functions (`HubspotQuickbookApiLambda`, `HubspotQuickbookAdminInvalidate`), API Gateway (HTTP API), CloudWatch LogGroups and wiring for environment variables. Lambda functions are configured to run inside the private subnets and reference the exported `LambdaSecurityGroupId` and subnet ids.
+
+   Key architecture notes:
+
+   - Lambda functions run inside the VPC private subnets so they can access DocumentDB; the `LambdaSecurityGroup` controls network egress and DocumentDB security group permits traffic from the Lambda security group.
+   - OAuth tokens and sensitive values are stored in MongoDB (DocumentDB) and Secrets Manager (client id/secret and service API key). The Lambda role grants `secretsmanager:GetSecretValue` so the runtime can fetch secrets.
+   - API Gateway (HTTP API) fronts the Lambdas and auto-deploys a stage (default `prod` in templates). Access logs are written to CloudWatch Log Groups created by the `app.yaml` template.
+   - A private S3 bucket is expected for deployment artifacts ZIPs; build scripts in `package.json` create the ZIP and there are npm scripts to upload/update the Lambda.
+
+   Deployment order and recommendations
+
+   1. Deploy `src/network.yaml` first (or import your existing VPC by setting `UseExistingVpc=true` and providing `ExistingVpcId` and subnet ids). This creates exports other stacks rely on.
+   2. Deploy `src/secrets-only.yaml` to create required Secrets Manager secrets. You can fill their values from the AWS Console or via CLI after creation.
+   3. Deploy `src/bucket-only.yaml` (or create your own S3 bucket) to host the Lambda zip.
+   4. Deploy `src/data-create.yaml` to provision DocumentDB. It requires the VPC/subnets and will create a security group that allows access from the Lambda SG.
+   5. Upload your Lambda ZIP (created by `npm run package-lambda`) to the deployment S3 bucket.
+   6. Deploy `src/app.yaml`, passing parameters like `LambdaDeploymentBucket`, `LambdaS3Key`, `DocDBClusterEndpoint`, `DocDBClusterIdentifier`, `DocDBMasterUsername`, `StageName`, and `QuickBooksEnvironment`.
+
+   Sample CloudFormation deploy commands (replace placeholders):
+
+   ```powershell
+   # 1) Network
+   aws cloudformation deploy --template-file src/network.yaml --stack-name hubspot-network --capabilities CAPABILITY_NAMED_IAM --parameter-overrides VpcCidr=10.0.0.0/16
+
+   # 2) Secrets (creates Secrets Manager entries)
+   aws cloudformation deploy --template-file src/secrets-only.yaml --stack-name hubspot-secrets --capabilities CAPABILITY_NAMED_IAM
+
+   # 3) Bucket
+   aws cloudformation deploy --template-file src/bucket-only.yaml --stack-name hubspot-bucket --capabilities CAPABILITY_NAMED_IAM
+
+   # 4) Data (DocumentDB)
+   aws cloudformation deploy --template-file src/data-create.yaml --stack-name hubspot-docdb --capabilities CAPABILITY_NAMED_IAM --parameter-overrides DocDBClusterIdentifier=quickbooks-hubspot-cluster
+
+   # 5) Upload Lambda zip to the bucket (after npm run package-lambda)
+   aws s3 cp ./hubspot-quickbooks-backend.zip s3://<your-deployment-bucket>/<key>
+
+   # 6) App (Lambda + API Gateway)
+   aws cloudformation deploy --template-file src/app.yaml --stack-name hubspot-app --capabilities CAPABILITY_NAMED_IAM --parameter-overrides LambdaDeploymentBucket=<your-deployment-bucket> LambdaS3Key=<key> DocDBClusterEndpoint=<docdb-endpoint> DocDBClusterIdentifier=<docdb-identifier> StageName=prod QuickBooksEnvironment=production
+   ```
+
+   Permissions & IAM notes
+
+   - The `app.yaml` Lambda role includes the managed policies `AWSLambdaBasicExecutionRole` and `AWSLambdaVPCAccessExecutionRole` and is granted `secretsmanager:GetSecretValue` in-line. If you lock down secrets to specific ARNs you should update the policy to list those secret ARNs rather than `*`.
+   - The CloudFormation templates create resources with sensible defaults, but review and apply least-privilege changes before using in production.
+
+   Networking & connectivity
+
+   - DocumentDB is created in private subnets and secured by a Security Group which only allows access from the Lambda security group (and optionally a bastion SG). If you need to connect from your desktop, create a bastion with `src/bastion.yaml` and restrict SSH/SSM to your IP.
+   - Because Lambdas run in private subnets, ensure there is a NAT gateway (network stack creates one by default when creating the VPC) for outbound internet access (used to call QuickBooks, HubSpot, and AWS Secrets Manager).
+
+   Outputs to expect
+
+   - `app.yaml` exports `ApiEndpoint` (the HTTP API URL) and `LambdaFunctionArn` for the API Lambda.
+   - `network.yaml`, `data-create.yaml`, and `secrets-only.yaml` provide outputs you will use when wiring parameters for later stacks.
+
+   If you want, I can add a small helper script (`scripts/list-taxcodes.js`) that uses stored credentials to list TaxCode Name/Id pairs from QuickBooks (helpful to copy the numeric GST 5% id). I can also add a sample `deploy.sh` or GitHub Actions workflow notes to the README. Which would you prefer?
+
    ## Troubleshooting
 
    - OAuth invalid_client during token exchange usually means client credentials are wrong or rotated. The app attempts a credentials reload once.
