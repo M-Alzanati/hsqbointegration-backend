@@ -224,3 +224,6 @@ This backend service integrates HubSpot CRM with QuickBooks Online, allowing you
    - OAuth invalid_client during token exchange usually means client credentials are wrong or rotated. The app attempts a credentials reload once.
    - If invoices fail with QuickBooks validation errors, check the debug logs — the full invoice payload is logged on failure.
 
+   ## License
+
+   - MIT (see LICENSE.md)
