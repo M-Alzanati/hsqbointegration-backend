@@ -218,7 +218,6 @@ This backend service integrates HubSpot CRM with QuickBooks Online, allowing you
 
    - The repository contains npm scripts to build and package the Lambda. There is also a placeholder `cloudformation.yaml` pointing to the modular templates and a GitHub Actions workflow in `.github/workflows/` (if present) can be used to automate build & deploy. Prefer deploying via a CI pipeline using credentials with least privilege.
 
-   If you want, I can add a small `scripts/list-taxcodes.js` utility to query QuickBooks TaxCode Name/Id pairs using stored credentials, and/or a PowerShell `scripts/deploy.ps1` that wraps the commands above and accepts parameters.
 
    ## Troubleshooting
 
